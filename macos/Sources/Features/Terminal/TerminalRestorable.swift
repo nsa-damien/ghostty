@@ -135,6 +135,14 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
             return
         }
 
+        // Project Sidebar metadata is the restoration authority for regular workspace entries.
+        // Decline legacy AppKit records before decoding them so a stale SurfaceView graph cannot
+        // launch a shell or import a shell-reported working directory during relaunch.
+        if appDelegate.projectSidebarController.isRestorationAuthority {
+            completionHandler(nil, nil)
+            return
+        }
+
         // If our configuration is "never" then we never restore the state
         // no matter what. Note its safe to use "ghostty.config" directly here
         // because window restoration is only ever invoked on app start so we
@@ -233,4 +241,3 @@ class TerminalWindowRestoration: NSObject, NSWindowRestoration {
         }
     }
 }
-

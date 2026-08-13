@@ -71,6 +71,9 @@ app: *App,
 rt_app: *apprt.runtime.App,
 rt_surface: *apprt.runtime.Surface,
 
+/// Whether an invalid explicit working directory must abort process launch.
+strict_working_directory: bool = false,
+
 /// The font structures
 font_grid_key: font.SharedGridSet.Key,
 font_size: font.face.DesiredSize,
@@ -470,6 +473,7 @@ pub fn init(
     app: *App,
     rt_app: *apprt.runtime.App,
     rt_surface: *apprt.runtime.Surface,
+    strict_working_directory: bool = false,
 ) !void {
     // Apply our conditional state. If we fail to apply the conditional state
     // then we log and attempt to move forward with the old config.
@@ -600,6 +604,7 @@ pub fn init(
         .app = app,
         .rt_app = rt_app,
         .rt_surface = rt_surface,
+        .strict_working_directory = strict_working_directory,
         .font_grid_key = font_grid_key,
         .font_size = font_size,
         .font_size_adjusted = false,
@@ -663,6 +668,7 @@ pub fn init(
             .shell_integration_features = config.@"shell-integration-features",
             .cursor_blink = config.@"cursor-style-blink",
             .working_directory = if (config.@"working-directory") |wd| wd.value() else null,
+            .strict_working_directory = strict_working_directory,
             .resources_dir = global.resourcesDir().host(),
             .term = config.term,
             .rt_pre_exec_info = .init(config),

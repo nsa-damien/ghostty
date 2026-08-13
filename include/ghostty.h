@@ -475,6 +475,7 @@ typedef struct {
   double scale_factor;
   float font_size;
   const char* working_directory;
+  bool strict_working_directory;
   const char* command;
   ghostty_env_var_s* env_vars;
   size_t env_var_count;

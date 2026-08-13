@@ -573,6 +573,7 @@ pub const Config = struct {
     shell_integration_features: configpkg.Config.ShellIntegrationFeatures = .{},
     cursor_blink: ?bool = null,
     working_directory: ?[]const u8 = null,
+    strict_working_directory: bool = false,
     resources_dir: ?[]const u8,
     term: []const u8,
 
@@ -589,6 +590,7 @@ const Subprocess = struct {
 
     arena: std.heap.ArenaAllocator,
     cwd: ?[:0]const u8,
+    strict_working_directory: bool,
     env: ?EnvMap,
     args: []const [:0]const u8,
     grid_size: renderer.GridSize,
@@ -871,6 +873,7 @@ const Subprocess = struct {
             .arena = arena,
             .env = env,
             .cwd = cwd,
+            .strict_working_directory = cfg.strict_working_directory,
             .args = args,
 
             .rt_pre_exec_info = cfg.rt_pre_exec_info,
@@ -971,6 +974,7 @@ const Subprocess = struct {
                 };
                 _ = cmd.spawn(alloc) catch |err| {
                     log.warn("cannot spawn command at cwd, ignoring: {}", .{err});
+                    if (self.strict_working_directory) return err;
                     break :cwd null;
                 };
                 _ = try cmd.wait();
@@ -982,6 +986,7 @@ const Subprocess = struct {
                 break :cwd proposed;
             } else |err| {
                 log.warn("cannot access cwd, ignoring: {}", .{err});
+                if (self.strict_working_directory) return err;
                 break :cwd null;
             }
         } else null;

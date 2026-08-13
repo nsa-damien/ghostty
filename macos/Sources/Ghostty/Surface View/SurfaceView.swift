@@ -584,6 +584,10 @@ extension Ghostty {
         }
         private var normalizedWorkingDirectory: String?
 
+        /// When true, an unavailable working directory fails surface creation instead of
+        /// inheriting the launching process's directory.
+        var strictWorkingDirectory: Bool = false
+
         /// Explicit command to set
         var command: String?
 
@@ -606,6 +610,7 @@ extension Ghostty {
             if let workingDirectory = config.working_directory {
                 self.workingDirectory = String.init(cString: workingDirectory, encoding: .utf8)
             }
+            self.strictWorkingDirectory = config.strict_working_directory
             if let command = config.command {
                 self.command = String.init(cString: command, encoding: .utf8)
             }
@@ -646,6 +651,7 @@ extension Ghostty {
             // Use withCString to ensure strings remain valid for the duration of the closure
             return try workingDirectory.withCString { cWorkingDir in
                 config.working_directory = cWorkingDir
+                config.strict_working_directory = strictWorkingDirectory
 
                 return try command.withCString { cCommand in
                     config.command = cCommand

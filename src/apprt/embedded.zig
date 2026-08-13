@@ -459,6 +459,10 @@ pub const Surface = struct {
         /// The working directory to load into.
         working_directory: ?[*:0]const u8 = null,
 
+        /// When true, an invalid working directory prevents surface creation instead of
+        /// falling back to the parent process directory.
+        strict_working_directory: bool = false,
+
         /// The command to run in the new surface. If this is set then
         /// the "wait-after-command" option is also automatically set to true,
         /// since this is used for scripting.
@@ -514,6 +518,7 @@ pub const Surface = struct {
                         "error opening requested working directory dir={s} err={}",
                         .{ wd, err },
                     );
+                    if (opts.strict_working_directory) return err;
                     break :wd;
                 };
                 defer dir.close(global.io());
@@ -523,6 +528,7 @@ pub const Surface = struct {
                         "failed to stat requested working directory dir={s} err={}",
                         .{ wd, err },
                     );
+                    if (opts.strict_working_directory) return err;
                     break :wd;
                 };
 
@@ -531,6 +537,7 @@ pub const Surface = struct {
                         "requested working directory is not a directory dir={s}",
                         .{wd},
                     );
+                    if (opts.strict_working_directory) return error.NotDir;
                     break :wd;
                 }
 
@@ -602,6 +609,7 @@ pub const Surface = struct {
             app.core_app,
             app,
             self,
+            opts.strict_working_directory,
         );
         errdefer self.core_surface.deinit();
 

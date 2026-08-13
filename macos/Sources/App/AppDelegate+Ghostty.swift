@@ -6,6 +6,10 @@ import AppKit
 /// APIs for app-global information.
 extension AppDelegate: Ghostty.Delegate {
     func ghosttySurface(id: UUID) -> Ghostty.SurfaceView? {
+        if let workspaceSurface = projectSidebarController.runtimeRegistry.allSurfaceViews.first(where: { $0.id == id }) {
+            return workspaceSurface
+        }
+
         for window in NSApp.windows {
             guard let controller = window.windowController as? BaseTerminalController else {
                 continue

@@ -148,6 +148,10 @@ class AppDelegate: NSObject,
         }
     }
 
+    /// The single app-owned Project Sidebar controller. Keeping this on AppDelegate means
+    /// hiding the workspace window does not release its terminal runtimes.
+    private(set) lazy var projectSidebarController = ProjectSidebarController(ghostty: ghostty)
+
     /// Manages updates
     let updateController = UpdateController()
     var updateViewModel: UpdateViewModel {
@@ -369,7 +373,7 @@ class AppDelegate: NSObject,
             //   - if we're restoring from persisted state
             if TerminalController.all.isEmpty && derivedConfig.initialWindow {
                 undoManager.disableUndoRegistration()
-                _ = TerminalController.newWindow(ghostty)
+                projectSidebarController.show()
                 undoManager.enableUndoRegistration()
             }
         }
@@ -408,6 +412,9 @@ class AppDelegate: NSObject,
         }
 
         // If our app says we don't need to confirm, we can exit now.
+        if projectSidebarController.runtimeRegistry.runningEntryCount > 0 {
+            return projectSidebarController.confirmQuit()
+        }
         if !ghostty.needsConfirmQuit { return .terminateNow }
 
         return terminate()
@@ -418,6 +425,7 @@ class AppDelegate: NSObject,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        projectSidebarController.stopAllRuntimes()
     }
 
     /// This is called when the application is already open and someone double-clicks the icon
@@ -439,7 +447,7 @@ class AppDelegate: NSObject,
         guard applicationHasBecomeActive else { return true }
 
         // No visible windows, open a new one.
-        _ = TerminalController.newWindow(ghostty)
+        projectSidebarController.show()
         return false
     }
 
@@ -569,6 +577,20 @@ class AppDelegate: NSObject,
     }
 
     private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           projectSidebarController.hasVisibleWindow {
+            switch event.keyCode {
+            case 0x11: // T
+                projectSidebarController.performNewTerminal()
+                return nil
+            case 0x0D: // W
+                projectSidebarController.performCloseSelectedTerminal()
+                return nil
+            default:
+                break
+            }
+        }
+
         // If the tab overview is visible and escape is pressed, close it.
         // This can't POSSIBLY be right and is probably a FirstResponder problem
         // that we should handle elsewhere in our program. But this works and it
@@ -910,6 +932,10 @@ class AppDelegate: NSObject,
     // MARK: - GhosttyAppDelegate
 
     func findSurface(forUUID uuid: UUID) -> Ghostty.SurfaceView? {
+        if let workspaceSurface = projectSidebarController.runtimeRegistry.allSurfaceViews.first(where: { $0.id == uuid }) {
+            return workspaceSurface
+        }
+
         for c in TerminalController.all {
             for view in c.surfaceTree where view.id == uuid {
                 return view
@@ -957,6 +983,10 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func newTab(_ sender: Any?) {
+        if projectSidebarController.hasVisibleWindow {
+            projectSidebarController.performNewTerminal()
+            return
+        }
         _ = TerminalController.newTab(
             ghostty,
             from: TerminalController.preferredParent?.window

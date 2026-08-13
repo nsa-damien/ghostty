@@ -8,20 +8,25 @@ struct ProjectSidebarView: View {
     var body: some View {
         HSplitView {
             sidebar
-                .frame(minWidth: ProjectSidebarWorkspaceValidator.minimumSidebarWidth,
-                       idealWidth: controller.workspace.sidebarWidth,
-                       maxWidth: ProjectSidebarWorkspaceValidator.maximumSidebarWidth)
-            detail
-                .frame(minWidth: 420)
+                .frame(
+                    minWidth: ProjectSidebarWorkspaceValidator.minimumSidebarWidth,
+                    idealWidth: controller.workspace.sidebarWidth,
+                    maxWidth: ProjectSidebarWorkspaceValidator.maximumSidebarWidth
+                )
+            detail.frame(minWidth: 420)
         }
         .frame(minWidth: 760, minHeight: 480)
         .toolbar {
-            if !controller.workspace.projects.isEmpty {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: controller.performNewTerminal) {
-                        Label("New Terminal", systemImage: "plus")
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button("New Terminal", action: controller.performNewTerminal)
+                        .keyboardShortcut("t", modifiers: [.command])
+                    Button("New Project") { controller.createProjectFromFolderPicker() }
+                    Button("New Folder") {
+                        controller.performSidebarMutation { _ = try controller.createGroup() }
                     }
-                    .keyboardShortcut("t", modifiers: [.command])
+                } label: {
+                    Label("Add", systemImage: "plus")
                 }
             }
             ToolbarItem {
@@ -38,36 +43,75 @@ struct ProjectSidebarView: View {
     private var sidebar: some View {
         if controller.workspace.sidebarVisible {
             VStack(spacing: 0) {
-                if controller.workspace.projects.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "sidebar.left")
-                            .font(.system(size: 32))
-                            .foregroundStyle(.secondary)
-                        Text("Organize your terminals into projects")
-                            .font(.headline)
-                            .multilineTextAlignment(.center)
-                        Text("Each project keeps named terminals and their launch folders together.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                        Button("Create Project", action: controller.createProjectFromFolderPicker)
-                            .buttonStyle(.borderedProminent)
-                    }
-                    .padding(24)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if controller.workspace.projects.isEmpty && controller.workspace.groups.isEmpty {
+                    emptyState
                 } else {
                     List {
-                        ForEach(controller.workspace.projects) { project in
-                            ProjectSidebarProjectRow(controller: controller, project: project)
+                        if !controller.workspace.groups.isEmpty {
+                            Section {
+                                ForEach(controller.workspace.groups) { group in
+                                    ProjectSidebarFolderRow(controller: controller, group: group)
+                                }
+                                .onMove { offsets, destination in
+                                    guard let source = offsets.first else { return }
+                                    controller.performSidebarMutation {
+                                        try controller.reorderGroups(from: source, to: destination)
+                                    }
+                                }
+                            } header: {
+                                Text("Folders")
+                            }
                         }
-                        .onMove { offsets, destination in
-                            guard let source = offsets.first else { return }
-                            try? controller.reorderProjects(from: source, to: destination)
+
+                        if !controller.workspace.groups.isEmpty ||
+                            !controller.workspace.ungroupedProjects.isEmpty {
+                            Section {
+                                if controller.workspace.ungroupedProjects.isEmpty {
+                                    Text("Drop projects here")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                } else {
+                                    ForEach(controller.workspace.ungroupedProjects) { project in
+                                        ProjectSidebarProjectRow(
+                                            controller: controller,
+                                            project: project,
+                                            groupID: nil
+                                        )
+                                    }
+                                    .onMove { offsets, destination in
+                                        guard let source = offsets.first else { return }
+                                        controller.performSidebarMutation {
+                                            try controller.reorderProjects(
+                                                inGroup: nil,
+                                                from: source,
+                                                to: destination
+                                            )
+                                        }
+                                    }
+                                }
+                            } header: {
+                                Text("Projects")
+                                    .onDrop(
+                                        of: [ProjectSidebarDragPayload.projectType],
+                                        delegate: ProjectSidebarProjectDropDelegate(
+                                            controller: controller,
+                                            groupID: nil,
+                                            beforeProjectID: nil
+                                        )
+                                    )
+                            }
                         }
                     }
                     .listStyle(.sidebar)
                 }
             }
+            .onDrop(
+                of: [.fileURL],
+                delegate: ProjectSidebarExternalFolderDropDelegate(
+                    controller: controller,
+                    groupID: nil
+                )
+            )
             .overlay(alignment: .bottom) {
                 if let notice = controller.recoveryNotice {
                     Text(notice)
@@ -82,19 +126,49 @@ struct ProjectSidebarView: View {
         }
     }
 
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 32))
+                .foregroundStyle(.secondary)
+            Text("Organize repositories into projects")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text("Create a folder for related projects, or add a project directly.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Text("You can also drop a repository folder here from Finder.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            HStack {
+                Button("New Folder") {
+                    controller.performSidebarMutation { _ = try controller.createGroup() }
+                }
+                Button("Create Project") { controller.createProjectFromFolderPicker() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     @ViewBuilder
     private var detail: some View {
         if let entryID = controller.selectedEntryID,
            let runtime = controller.runtime(for: entryID) {
-            TerminalView(ghostty: controller.ghostty, viewModel: runtime.controller, delegate: runtime.controller)
-                .id(entryID)
+            TerminalView(
+                ghostty: controller.ghostty,
+                viewModel: runtime.controller,
+                delegate: runtime.controller
+            )
+            .id(entryID)
         } else {
             VStack(spacing: 12) {
                 Image(systemName: "terminal")
                     .font(.system(size: 36))
                     .foregroundStyle(.secondary)
-                Text("Select a terminal to start")
-                    .font(.headline)
+                Text("Select a terminal to start").font(.headline)
                 Text("Your saved projects remain here after Ghostty restarts.")
                     .foregroundStyle(.secondary)
             }
@@ -103,166 +177,211 @@ struct ProjectSidebarView: View {
     }
 }
 
-private struct ProjectSidebarProjectRow: View {
+private struct ProjectSidebarFolderRow: View {
     @ObservedObject var controller: ProjectSidebarController
-    let project: ProjectSidebarProject
+    let group: ProjectSidebarGroup
     @State private var isEditingName = false
     @State private var draftName = ""
     @State private var validationError: String?
+    @FocusState private var nameIsFocused: Bool
 
     var body: some View {
-        DisclosureGroup(isExpanded: binding(for: project.id)) {
-            ForEach(project.ungroupedEntries) { entry in
-                ProjectSidebarEntryRow(controller: controller, entry: entry)
+        DisclosureGroup(isExpanded: expanded) {
+            ForEach(group.projects) { project in
+                ProjectSidebarProjectRow(
+                    controller: controller,
+                    project: project,
+                    groupID: group.id
+                )
             }
             .onMove { offsets, destination in
                 guard let source = offsets.first else { return }
-                try? controller.reorderTerminals(in: project.id, groupID: nil, from: source, to: destination)
-            }
-            ForEach(project.groups) { group in
-                DisclosureGroup(isExpanded: binding(for: group.id)) {
-                    ForEach(group.entries) { entry in
-                        ProjectSidebarEntryRow(controller: controller, entry: entry)
-                    }
-                    .onMove { offsets, destination in
-                        guard let source = offsets.first else { return }
-                        try? controller.reorderTerminals(in: project.id, groupID: group.id, from: source, to: destination)
-                    }
-                } label: {
-                    ProjectSidebarGroupLabel(controller: controller, projectID: project.id, group: group)
+                controller.performSidebarMutation {
+                    try controller.reorderProjects(inGroup: group.id, from: source, to: destination)
                 }
-                .contextMenu {
-                    Button("Delete Group", role: .destructive) {
-                        try? controller.deleteGroup(group.id, in: project.id)
-                    }
-                }
-            }
-            .onMove { offsets, destination in
-                guard let source = offsets.first else { return }
-                try? controller.reorderGroups(in: project.id, from: source, to: destination)
             }
         } label: {
-            HStack {
-                if isEditingName {
-                    TextField("Project name", text: $draftName)
-                        .onSubmit { commitName() }
-                        .onExitCommand { isEditingName = false }
-                } else {
-                    Button {
-                        controller.select(projectID: project.id)
-                    } label: {
-                        Label(project.name, systemImage: "folder")
-                    }
-                    .buttonStyle(.plain)
-                    .onTapGesture(count: 2) {
-                        draftName = project.name
-                        isEditingName = true
-                    }
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill").foregroundStyle(.secondary)
+                editableName
+                Spacer(minLength: 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Add Project") { controller.createProjectFromFolderPicker(inGroup: group.id) }
+                Button("Rename") { beginEditing() }
+                Divider()
+                Button("Delete Folder", role: .destructive) {
+                    controller.performSidebarMutation { try controller.deleteGroup(group.id) }
                 }
             }
-            if let validationError {
-                Text(validationError)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-            }
+            .onDrag { ProjectSidebarDragPayload.provider(forGroup: group.id) }
+            .onDrop(
+                of: [ProjectSidebarDragPayload.groupType, ProjectSidebarDragPayload.projectType],
+                delegate: ProjectSidebarFolderDropDelegate(
+                    controller: controller,
+                    destinationGroupID: group.id
+                )
+            )
+            .onDrop(
+                of: [.fileURL],
+                delegate: ProjectSidebarExternalFolderDropDelegate(
+                    controller: controller,
+                    groupID: group.id
+                )
+            )
         }
-        .contextMenu {
-            Button("New Terminal") {
-                do { _ = try controller.createTerminal(in: project.id) } catch { }
+    }
+
+    @ViewBuilder
+    private var editableName: some View {
+        if isEditingName {
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("Folder name", text: $draftName)
+                    .focused($nameIsFocused)
+                    .onAppear { nameIsFocused = true }
+                    .onSubmit { commitName() }
+                    .onExitCommand { cancelEditing() }
+                if let validationError {
+                    Text(validationError).font(.caption2).foregroundStyle(.red)
+                }
             }
-            Button("New Group") {
-                do { _ = try controller.createGroup(in: project.id, name: "Group \(project.groups.count + 1)") } catch { }
-            }
-            Button("Rename") {
-                draftName = project.name
-                isEditingName = true
-            }
-            Button("Replace Base Folder") {
-                controller.chooseReplacementFolder(forProject: project.id)
-            }
-            Divider()
-            Button("Delete Project", role: .destructive) {
-                _ = controller.deleteProject(project.id)
-            }
+        } else {
+            Text(group.name)
+                .contentShape(Rectangle())
+                .onTapGesture { beginEditing() }
         }
-        .onDrop(of: [.text], delegate: ProjectSidebarEntryDropDelegate(
-            controller: controller,
-            projectID: project.id,
-            groupID: nil
-        ))
+    }
+
+    private var expanded: Binding<Bool> {
+        Binding(
+            get: { group.isExpanded },
+            set: { controller.setExpanded(id: group.id, expanded: $0) }
+        )
+    }
+
+    private func beginEditing() {
+        draftName = group.name
+        validationError = nil
+        isEditingName = true
+    }
+
+    private func cancelEditing() {
+        validationError = nil
+        isEditingName = false
+    }
+
+    private func commitName() {
+        do {
+            try controller.renameGroup(group.id, to: draftName)
+            cancelEditing()
+        } catch {
+            validationError = error.localizedDescription
+        }
+    }
+}
+
+private struct ProjectSidebarProjectRow: View {
+    @ObservedObject var controller: ProjectSidebarController
+    let project: ProjectSidebarProject
+    let groupID: UUID?
+    @State private var isEditingName = false
+    @State private var draftName = ""
+    @State private var validationError: String?
+    @FocusState private var nameIsFocused: Bool
+
+    var body: some View {
+        DisclosureGroup(isExpanded: expanded) {
+            ForEach(project.terminals) { terminal in
+                ProjectSidebarEntryRow(
+                    controller: controller,
+                    entry: terminal,
+                    projectID: project.id
+                )
+            }
+            .onMove { offsets, destination in
+                guard let source = offsets.first else { return }
+                controller.performSidebarMutation {
+                    try controller.reorderTerminals(in: project.id, from: source, to: destination)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "shippingbox").foregroundStyle(.secondary)
+                editableName
+                Spacer(minLength: 4)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { controller.select(projectID: project.id) }
+            .contextMenu {
+                Button("New Terminal") { _ = try? controller.createTerminal(in: project.id) }
+                Button("Rename") { beginEditing() }
+                Button("Replace Base Folder") { controller.chooseReplacementFolder(forProject: project.id) }
+                if groupID != nil {
+                    Button("Move Out of Folder") {
+                        controller.performSidebarMutation {
+                            try controller.moveProject(project.id, toGroup: nil)
+                        }
+                    }
+                }
+                Divider()
+                Button("Delete Project", role: .destructive) { _ = controller.deleteProject(project.id) }
+            }
+            .onDrag { ProjectSidebarDragPayload.provider(forProject: project.id) }
+            .onDrop(
+                of: [ProjectSidebarDragPayload.projectType, ProjectSidebarDragPayload.terminalType],
+                delegate: ProjectSidebarCombinedDropDelegate(
+                    controller: controller,
+                    projectID: project.id,
+                    groupID: groupID
+                )
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var editableName: some View {
+        if isEditingName {
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("Project name", text: $draftName)
+                    .focused($nameIsFocused)
+                    .onAppear { nameIsFocused = true }
+                    .onSubmit { commitName() }
+                    .onExitCommand { cancelEditing() }
+                if let validationError {
+                    Text(validationError).font(.caption2).foregroundStyle(.red)
+                }
+            }
+        } else {
+            Text(project.name)
+                .contentShape(Rectangle())
+                .onTapGesture { beginEditing() }
+        }
+    }
+
+    private var expanded: Binding<Bool> {
+        Binding(
+            get: { project.isExpanded },
+            set: { controller.setExpanded(id: project.id, expanded: $0) }
+        )
+    }
+
+    private func beginEditing() {
+        draftName = project.name
+        validationError = nil
+        isEditingName = true
+    }
+
+    private func cancelEditing() {
+        validationError = nil
+        isEditingName = false
     }
 
     private func commitName() {
         do {
             try controller.renameProject(project.id, to: draftName)
-            validationError = nil
-            isEditingName = false
-        } catch {
-            validationError = error.localizedDescription
-        }
-    }
-
-    private func binding(for id: UUID) -> Binding<Bool> {
-        Binding(
-            get: {
-                if id == project.id { return project.isExpanded }
-                return project.groups.first(where: { $0.id == id })?.isExpanded ?? true
-            },
-            set: { newValue in
-                controller.setExpanded(id: id, expanded: newValue)
-            }
-        )
-    }
-}
-
-private struct ProjectSidebarGroupLabel: View {
-    @ObservedObject var controller: ProjectSidebarController
-    let projectID: UUID
-    let group: ProjectSidebarGroup
-    @State private var isEditingName = false
-    @State private var draftName = ""
-    @State private var validationError: String?
-
-    var body: some View {
-        HStack {
-            if isEditingName {
-                TextField("Group name", text: $draftName)
-                    .onSubmit { commitName() }
-                    .onExitCommand { isEditingName = false }
-            } else {
-                Text(group.name)
-                    .onTapGesture(count: 2) {
-                        draftName = group.name
-                        isEditingName = true
-                    }
-            }
-            if let validationError {
-                Text(validationError)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-            }
-        }
-        .onDrop(of: [.text], delegate: ProjectSidebarEntryDropDelegate(
-            controller: controller,
-            projectID: projectID,
-            groupID: group.id
-        ))
-        .contextMenu {
-            Button("Rename") {
-                draftName = group.name
-                isEditingName = true
-            }
-            Button("Delete Group", role: .destructive) {
-                try? controller.deleteGroup(group.id, in: projectID)
-            }
-        }
-    }
-
-    private func commitName() {
-        do {
-            try controller.renameGroup(group.id, in: projectID, to: draftName)
-            validationError = nil
-            isEditingName = false
+            cancelEditing()
         } catch {
             validationError = error.localizedDescription
         }
@@ -272,97 +391,124 @@ private struct ProjectSidebarGroupLabel: View {
 private struct ProjectSidebarEntryRow: View {
     @ObservedObject var controller: ProjectSidebarController
     let entry: ProjectSidebarTerminal
+    let projectID: UUID
     @State private var isEditingName = false
     @State private var draftName = ""
     @State private var validationError: String?
+    @FocusState private var nameIsFocused: Bool
 
     var body: some View {
-        Button {
-            controller.select(entryID: entry.id)
-        } label: {
-            HStack(spacing: 6) {
+        HStack(spacing: 6) {
+            Button { controller.select(entryID: entry.id) } label: {
                 Image(systemName: controller.entryStatus(entry.id).systemImage)
                     .foregroundStyle(controller.entryStatus(entry.id) == .running ? .green : .secondary)
                     .font(.caption)
-                VStack(alignment: .leading, spacing: 1) {
-                    if isEditingName {
-                        TextField("Terminal name", text: $draftName)
-                            .onSubmit { commitName() }
-                            .onExitCommand { isEditingName = false }
-                    } else {
-                        Text(entry.name)
-                            .onTapGesture(count: 2) {
-                                draftName = entry.name
-                                isEditingName = true
-                            }
-                    }
-                    if let validationError {
-                        Text(validationError)
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                    }
-                    if let runtime = controller.runtime(for: entry.id),
-                       let focused = runtime.controller.focusedSurface,
-                       !focused.title.isEmpty {
-                        Text(focused.title)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 1) {
+                editableName
+                if let runtime = controller.runtime(for: entry.id),
+                   let focused = runtime.controller.focusedSurface,
+                   !focused.title.isEmpty {
+                    Text(focused.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
+            Spacer(minLength: 4)
         }
-        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onTapGesture { controller.select(entryID: entry.id) }
         .accessibilityValue(controller.entryStatus(entry.id).label)
-        .onDrag {
-            NSItemProvider(object: entry.id.uuidString as NSString)
-        }
+        .onDrag { ProjectSidebarDragPayload.provider(forTerminal: entry.id) }
+        .onDrop(
+            of: [ProjectSidebarDragPayload.terminalType],
+            delegate: ProjectSidebarTerminalDropDelegate(
+                controller: controller,
+                projectID: projectID,
+                beforeTerminalID: entry.id
+            )
+        )
         .contextMenu {
-            Button("Rename") {
-                draftName = entry.name
-                isEditingName = true
-            }
+            Button("Rename") { beginEditing() }
             if controller.launchFailures.contains(entry.id) {
                 Button("Retry") { _ = controller.launch(entryID: entry.id) }
             }
-            Button("Change Folder") {
-                controller.chooseReplacementFolder(forEntry: entry.id)
-            }
+            Button("Change Folder") { controller.chooseReplacementFolder(forEntry: entry.id) }
             Divider()
-            Button("Delete Terminal", role: .destructive) {
-                _ = controller.deleteTerminal(entry.id)
-            }
+            Button("Delete Terminal", role: .destructive) { _ = controller.deleteTerminal(entry.id) }
         }
+    }
+
+    @ViewBuilder
+    private var editableName: some View {
+        if isEditingName {
+            VStack(alignment: .leading, spacing: 2) {
+                TextField("Terminal name", text: $draftName)
+                    .focused($nameIsFocused)
+                    .onAppear { nameIsFocused = true }
+                    .onSubmit { commitName() }
+                    .onExitCommand { cancelEditing() }
+                if let validationError {
+                    Text(validationError).font(.caption2).foregroundStyle(.red)
+                }
+            }
+        } else {
+            Text(entry.name)
+                .contentShape(Rectangle())
+                .onTapGesture { beginEditing() }
+        }
+    }
+
+    private func beginEditing() {
+        controller.select(entryID: entry.id)
+        draftName = entry.name
+        validationError = nil
+        isEditingName = true
+    }
+
+    private func cancelEditing() {
+        validationError = nil
+        isEditingName = false
     }
 
     private func commitName() {
         do {
             try controller.renameTerminal(entry.id, to: draftName)
-            validationError = nil
-            isEditingName = false
+            cancelEditing()
         } catch {
             validationError = error.localizedDescription
         }
     }
 }
 
-private struct ProjectSidebarEntryDropDelegate: DropDelegate {
-    let controller: ProjectSidebarController
-    let projectID: UUID
-    let groupID: UUID?
+private enum ProjectSidebarDragPayload {
+    static let groupType = UTType(exportedAs: "com.mitchellh.ghostty.project-sidebar.folder")
+    static let projectType = UTType(exportedAs: "com.mitchellh.ghostty.project-sidebar.project")
+    static let terminalType = UTType(exportedAs: "com.mitchellh.ghostty.project-sidebar.terminal")
 
-    func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [.text])
+    static func provider(forGroup id: UUID) -> NSItemProvider {
+        provider(for: id, type: groupType)
     }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+    static func provider(forProject id: UUID) -> NSItemProvider {
+        provider(for: id, type: projectType)
     }
 
-    func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders(for: [.text]).first else { return false }
-        provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { item, _ in
-            let string: String? = if let data = item as? Data {
+    static func provider(forTerminal id: UUID) -> NSItemProvider {
+        provider(for: id, type: terminalType)
+    }
+
+    static func loadID(
+        from info: DropInfo,
+        type: UTType,
+        completion: @escaping (UUID?) -> Void
+    ) -> Bool {
+        guard let provider = info.itemProviders(for: [type]).first else { return false }
+        provider.loadItem(forTypeIdentifier: type.identifier, options: nil) { item, _ in
+            let value: String? = if let data = item as? Data {
                 String(data: data, encoding: .utf8)
             } else if let string = item as? String {
                 string
@@ -371,11 +517,163 @@ private struct ProjectSidebarEntryDropDelegate: DropDelegate {
             } else {
                 nil
             }
+            DispatchQueue.main.async { completion(value.flatMap(UUID.init(uuidString:))) }
+        }
+        return true
+    }
+
+    private static func provider(for id: UUID, type: UTType) -> NSItemProvider {
+        NSItemProvider(item: id.uuidString as NSString, typeIdentifier: type.identifier)
+    }
+}
+
+private struct ProjectSidebarFolderDropDelegate: DropDelegate {
+    let controller: ProjectSidebarController
+    let destinationGroupID: UUID
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [ProjectSidebarDragPayload.groupType]) ||
+            info.hasItemsConforming(to: [ProjectSidebarDragPayload.projectType])
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        if info.hasItemsConforming(to: [ProjectSidebarDragPayload.groupType]) {
+            let after = info.location.y > 12
+            return ProjectSidebarDragPayload.loadID(
+                from: info,
+                type: ProjectSidebarDragPayload.groupType
+            ) { groupID in
+                guard let groupID else { return }
+                controller.performSidebarMutation {
+                    try controller.moveGroup(
+                        groupID,
+                        relativeTo: destinationGroupID,
+                        after: after
+                    )
+                }
+            }
+        }
+        return ProjectSidebarDragPayload.loadID(
+            from: info,
+            type: ProjectSidebarDragPayload.projectType
+        ) { projectID in
+            guard let projectID else { return }
+            controller.performSidebarMutation {
+                try controller.moveProject(projectID, toGroup: destinationGroupID)
+            }
+        }
+    }
+}
+
+private struct ProjectSidebarProjectDropDelegate: DropDelegate {
+    let controller: ProjectSidebarController
+    let groupID: UUID?
+    let beforeProjectID: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [ProjectSidebarDragPayload.projectType])
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        ProjectSidebarDragPayload.loadID(
+            from: info,
+            type: ProjectSidebarDragPayload.projectType
+        ) { projectID in
+            guard let projectID else { return }
+            controller.performSidebarMutation {
+                try controller.moveProject(projectID, toGroup: groupID, before: beforeProjectID)
+            }
+        }
+    }
+}
+
+private struct ProjectSidebarTerminalDropDelegate: DropDelegate {
+    let controller: ProjectSidebarController
+    let projectID: UUID
+    let beforeTerminalID: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [ProjectSidebarDragPayload.terminalType])
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        ProjectSidebarDragPayload.loadID(
+            from: info,
+            type: ProjectSidebarDragPayload.terminalType
+        ) { terminalID in
+            guard let terminalID,
+                  controller.location(of: terminalID)?.projectID == projectID else { return }
+            controller.performSidebarMutation {
+                try controller.moveTerminal(terminalID, before: beforeTerminalID)
+            }
+        }
+    }
+}
+
+private struct ProjectSidebarCombinedDropDelegate: DropDelegate {
+    let controller: ProjectSidebarController
+    let projectID: UUID
+    let groupID: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [ProjectSidebarDragPayload.projectType]) ||
+            info.hasItemsConforming(to: [ProjectSidebarDragPayload.terminalType])
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        if info.hasItemsConforming(to: [ProjectSidebarDragPayload.projectType]) {
+            let after = info.location.y > 12
+            return ProjectSidebarDragPayload.loadID(
+                from: info,
+                type: ProjectSidebarDragPayload.projectType
+            ) { draggedProjectID in
+                guard let draggedProjectID else { return }
+                controller.performSidebarMutation {
+                    try controller.moveProject(
+                        draggedProjectID,
+                        toGroup: groupID,
+                        relativeTo: projectID,
+                        after: after
+                    )
+                }
+            }
+        }
+        return ProjectSidebarDragPayload.loadID(
+            from: info,
+            type: ProjectSidebarDragPayload.terminalType
+        ) { terminalID in
+            guard let terminalID,
+                  controller.location(of: terminalID)?.projectID == projectID else { return }
+            controller.performSidebarMutation {
+                try controller.moveTerminal(terminalID, before: nil)
+            }
+        }
+    }
+}
+
+private struct ProjectSidebarExternalFolderDropDelegate: DropDelegate {
+    let controller: ProjectSidebarController
+    let groupID: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.fileURL])
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .copy)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let provider = info.itemProviders(for: [.fileURL]).first else { return false }
+        _ = provider.loadObject(ofClass: NSURL.self) { object, _ in
+            guard let url = object as? URL else { return }
             DispatchQueue.main.async {
-                guard let string, let entryID = UUID(uuidString: string),
-                      let location = controller.location(of: entryID),
-                      location.projectID == projectID else { return }
-                try? controller.moveTerminal(entryID, toGroup: groupID)
+                controller.createProjectFromDroppedFolder(url, inGroup: groupID)
             }
         }
         return true

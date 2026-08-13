@@ -30,4 +30,12 @@ final class ProjectSidebarWindowController: NSWindowController, NSWindowDelegate
         sidebarController.hide()
         return false
     }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        sidebarController.updateRuntimeFocus()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        sidebarController.updateRuntimeFocus()
+    }
 }

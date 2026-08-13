@@ -1,13 +1,13 @@
 ## Brief
 
 - Goal brief: `docs/development-roadmap/010-project-sidebar/project-sidebar-goal.md`
-- Goal brief blob: `2a332191254b81a220cb5aebc324e17af06ee68d`
+- Goal brief blob: `95280442e216efe44cd93391cc5e7436ef32a6b8`
 
 ## Approach
 
 Introduce a macOS-only `Project Sidebar` feature area with three deliberately separate layers:
 
-1. A persistent workspace model owns projects, groups, terminal entries, ordering, saved launch directories, and layout preferences. Stable UUIDs identify every project, group, and terminal entry. Projects are stored in order; each project stores ordered groups and an ordered ungrouped terminal array; each group stores one ordered terminal array. This nested shape makes one-level grouping structural and gives each terminal exactly one location without duplicate membership references.
+1. A persistent workspace model owns top-level folders, projects, terminal entries, ordering, saved launch directories, and layout preferences. Stable UUIDs identify every folder, project, and terminal entry. Folders store ordered projects, the workspace stores ordered ungrouped projects, and each project stores one ordered terminal array. This nested shape makes one-level project organization structural and gives every project and terminal exactly one location without duplicate membership references.
 2. A workspace store writes a versioned JSON envelope in Ghostty's Application Support directory. It validates before save and after load or migration, writes through atomic replacement, and retains one last-known-good backup. It never stores a `SurfaceView`, split tree, process state, terminal output, shell-reported working directory, or running flag.
 3. An app-lifetime runtime registry maps stable terminal-entry IDs to optional live runtimes. Each runtime owns the entry's complete `SplitTree<Ghostty.SurfaceView>` and focused surface. The single workspace window mounts only the selected runtime, while the registry keeps every other runtime alive and marks its surfaces unfocused and visually occluded without stopping terminal I/O.
 
@@ -60,15 +60,15 @@ None. Use Foundation, AppKit, SwiftUI, and existing Ghostty core and macOS helpe
 - **Touches:** new workspace controller, window controller, runtime registry foundation, folder-selection coordinator, empty-state and workspace-shell views under `macos/Sources/Features/Project Sidebar/`; `macos/Sources/App/AppDelegate.swift`; `macos/Sources/Features/Terminal/TerminalRestorable.swift`; macOS unit and UI tests
 - **Order:** serial, depends on U1
 - **Character:** risk-sensitive
-- **Done when:** a fresh app presents one explanatory workspace with one Create Project action; choosing a folder creates the default-named project and running editable `Terminal 1` there; closing and reopening the workspace preserves that live runtime; quitting or an explicit stop ends it.
+- **Done when:** a fresh app presents an explanatory workspace with folder and project creation actions; choosing a folder or dropping one from Finder creates the default-named project and running editable `Terminal 1` there; a folder-row drop assigns the new project to that folder while other sidebar drops leave it ungrouped; closing and reopening the workspace preserves that live runtime; quitting or an explicit stop ends it.
 
 ### U3 - Sidebar organization, validation, ordering, and layout
 
 - **Delivers:** B3, B5, B6, B7, B8, B17
-- **Touches:** workspace model mutation services from U1; sidebar tree, inline editor, drag-and-drop, layout, and context-action views under `macos/Sources/Features/Project Sidebar/`; model, interaction, persistence, and UI tests
+- **Touches:** workspace model mutation services from U1; sidebar tree, inline editor, drag-and-drop, layout, and context-action views under `macos/Sources/Features/Project Sidebar/`; model, migration, interaction, persistence, and UI tests
 - **Order:** serial, depends on U1 and U2
 - **Character:** design-sensitive
-- **Done when:** cancelled or duplicate folder selection creates nothing; invalid names retain input with inline errors; projects, one-level groups, and sibling entries can be renamed and reordered only within their allowed scope; entries can move between grouped and ungrouped positions only inside one project; collapse, sidebar visibility, width, and ordering survive relaunch; deleting a group moves its entries to the project's ungrouped area without changing runtime state.
+- **Done when:** cancelled or duplicate repository-folder selection creates nothing; invalid names retain input with inline errors; top-level folders, projects, and terminal entries can be renamed and reordered only within their allowed scope; projects can move between folders and the ungrouped area while terminals remain in their project; collapse, sidebar visibility, width, and ordering survive relaunch; deleting a folder moves its projects to the workspace's ungrouped area without changing runtime state; and version-1 terminal groups migrate by flattening each terminal into its original project exactly once.
 
 ### U4 - Safe terminal launching, runtime status, and folder repair
 
@@ -130,12 +130,12 @@ None. Use Foundation, AppKit, SwiftUI, and existing Ghostty core and macOS helpe
 - **Stopping through existing close-with-undo paths retains a split tree and leaves processes alive.** Give workspace entry stop a dedicated non-undo teardown path and assert process termination before dropping the registry entry.
 - **Native tab or split-extraction paths break the one-entry/one-tree model.** Route workspace new-terminal actions above `TerminalController`, suppress AppKit tab creation for workspace entries, and constrain workspace split moves to the selected entry while leaving internal split operations unchanged.
 - **Persistence corruption causes data loss or an unrecoverable launch loop.** Validate before every save, atomically replace, retain one known-good backup, quarantine unreadable or unsupported input, and never overwrite preserved data during fallback.
-- **Name, membership, and path invariants diverge between the UI and decoded data.** Use the same domain validator for mutations, load validation, migration output, and pre-save validation, with fixture and property-oriented tests for duplicate and orphaned records.
+- **Name, folder membership, and path invariants diverge between the UI and decoded data.** Use the same domain validator for mutations, load validation, migration output, and pre-save validation, with fixture and property-oriented tests for duplicate and orphaned records.
 
 ## Out of plan
 
 - Importing legacy AppKit-restored regular windows, live shell working directories, split layouts, terminal output, or processes into project entries. There is no source-faithful mapping to the brief's explicit saved launch choices.
 - Redesigning Quick Terminal restoration or lifecycle. It remains a separate feature and data path.
 - Preserving split layouts after an entry is stopped or after app termination. The brief preserves entry metadata, not runtime pane state.
-- Native-tab navigation for workspace entries, multiple workspace windows, or detaching a workspace split into another window.
+- Nested sidebar folders, native-tab navigation for workspace entries, multiple workspace windows, or detaching a workspace split into another window.
 - Git repository or worktree awareness, coding-agent integration, command templates, cloud sync, accounts, collaboration, or GTK support.

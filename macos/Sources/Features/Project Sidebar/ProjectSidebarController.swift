@@ -52,15 +52,10 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         }
     }
 
-    deinit {
-        statusTimer?.invalidate()
-    }
+    deinit { statusTimer?.invalidate() }
 
-    var hasVisibleWindow: Bool {
-        windowController?.window?.isVisible == true
-    }
-
-    var isRestorationAuthority: Bool { true }
+    var hasKeyWindow: Bool { windowController?.window?.isKeyWindow == true }
+    var isRestorationAuthority: Bool { !workspace.projects.isEmpty }
 
     func show() {
         if windowController == nil {
@@ -69,13 +64,16 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         windowController?.showWindow(self)
         windowController?.window?.makeKeyAndOrderFront(self)
         NSApp.activate(ignoringOtherApps: true)
+        updateRuntimeFocus()
     }
 
     func hide() {
         windowController?.window?.orderOut(self)
+        updateRuntimeFocus()
     }
 
-    func createProject(baseFolder: String, name: String? = nil) throws -> UUID {
+    @discardableResult
+    func createProject(baseFolder: String, name: String? = nil, inGroup groupID: UUID? = nil) throws -> UUID {
         guard ProjectSidebarWorkspaceValidator.isDirectoryAvailable(baseFolder) else {
             throw ProjectSidebarMutationError.baseFolderUnavailable
         }
@@ -85,62 +83,84 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         }) else {
             throw ProjectSidebarMutationError.duplicateBaseFolder
         }
+        if let groupID, !workspace.groups.contains(where: { $0.id == groupID }) {
+            throw ProjectSidebarMutationError.groupNotFound
+        }
 
         let folderName = URL(fileURLWithPath: baseFolder).lastPathComponent
         let projectName = ProjectSidebarWorkspaceValidator.displayName(name ?? folderName)
-        let entry = ProjectSidebarTerminal(name: "Terminal 1", launchDirectory: baseFolder)
-        let project = ProjectSidebarProject(name: projectName, baseFolder: baseFolder, ungroupedEntries: [entry])
+        let terminal = ProjectSidebarTerminal(name: "Terminal 1", launchDirectory: baseFolder)
+        let project = ProjectSidebarProject(name: projectName, baseFolder: baseFolder, terminals: [terminal])
         var updated = workspace
-        updated.projects.append(project)
+        if let groupID, let groupIndex = updated.groups.firstIndex(where: { $0.id == groupID }) {
+            updated.groups[groupIndex].projects.append(project)
+        } else {
+            updated.ungroupedProjects.append(project)
+        }
         try commit(updated)
         selectedProjectID = project.id
-        selectedEntryID = entry.id
-        _ = launch(entryID: entry.id)
+        selectedEntryID = terminal.id
+        _ = launch(entryID: terminal.id)
         return project.id
     }
 
-    func createProjectFromFolderPicker() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Create Project"
-        panel.begin { [weak self] response in
-            guard response == .OK, let folder = panel.url, let self else { return }
+    func createProjectFromFolderPicker(inGroup groupID: UUID? = nil) {
+        chooseFolder(prompt: "Create Project") { [weak self] folder in
+            guard let self else { return }
             do {
-                _ = try self.createProject(baseFolder: folder.path)
+                _ = try createProject(baseFolder: folder, inGroup: groupID)
             } catch {
-                self.present(error: error)
+                present(error: error)
             }
         }
     }
 
+    func createProjectFromDroppedFolder(_ url: URL, inGroup groupID: UUID? = nil) {
+        guard url.isFileURL else { return }
+        do {
+            _ = try createProject(baseFolder: url.path, inGroup: groupID)
+        } catch {
+            present(error: error)
+        }
+    }
+
+    @discardableResult
+    func createGroup(name: String? = nil) throws -> UUID {
+        let defaultName = nextAvailableGroupName()
+        let group = ProjectSidebarGroup(name: name ?? defaultName)
+        var updated = workspace
+        updated.groups.append(group)
+        try commit(updated)
+        return group.id
+    }
+
     @discardableResult
     func createTerminal(in projectID: UUID, name: String? = nil, launchDirectory: String? = nil) throws -> UUID {
-        guard let projectIndex = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
+        guard let location = workspace.location(ofProject: projectID) else {
             throw ProjectSidebarMutationError.projectNotFound
         }
-        let project = workspace.projects[projectIndex]
+        var project = workspace.project(at: location)
         guard ProjectSidebarWorkspaceValidator.isDirectoryAvailable(project.baseFolder) else {
             throw ProjectSidebarMutationError.baseFolderUnavailable
         }
-        let nextName = name ?? "Terminal \(project.allEntries.count + 1)"
-        let entry = ProjectSidebarTerminal(
-            name: nextName,
+        let terminal = ProjectSidebarTerminal(
+            name: name ?? nextAvailableTerminalName(in: project),
             launchDirectory: launchDirectory ?? project.baseFolder
         )
+        project.terminals.append(terminal)
         var updated = workspace
-        updated.projects[projectIndex].ungroupedEntries.append(entry)
+        updated.replaceProject(at: location, with: project)
         try commit(updated)
         selectedProjectID = projectID
-        selectedEntryID = entry.id
-        _ = launch(entryID: entry.id)
-        return entry.id
+        selectedEntryID = terminal.id
+        _ = launch(entryID: terminal.id)
+        return terminal.id
     }
 
     func select(projectID: UUID) {
         selectedProjectID = projectID
         selectedEntryID = nil
+        updateRuntimeFocus()
     }
 
     func select(entryID: UUID) {
@@ -148,6 +168,7 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         selectedProjectID = location.projectID
         selectedEntryID = entryID
         _ = launch(entryID: entryID)
+        updateRuntimeFocus()
     }
 
     @discardableResult
@@ -157,13 +178,18 @@ final class ProjectSidebarController: NSObject, ObservableObject {
             launchFailures.insert(entryID)
             return false
         }
-        let runtime = runtimeRegistry.start(entryID: entryID, ghostty: ghostty, launchDirectory: entry.launchDirectory)
+        let runtime = runtimeRegistry.start(
+            entryID: entryID,
+            ghostty: ghostty,
+            launchDirectory: entry.launchDirectory
+        )
         if runtime.controller.surfaceTree.first?.error != nil {
             runtimeRegistry.stop(entryID: entryID)
             launchFailures.insert(entryID)
             return false
         }
         launchFailures.remove(entryID)
+        updateRuntimeFocus()
         return true
     }
 
@@ -176,49 +202,32 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     }
 
     func entry(entryID: UUID) -> ProjectSidebarTerminal? {
-        location(of: entryID).flatMap { location in
-            switch location.groupID {
-            case nil:
-                return workspace.projects[location.projectIndex].ungroupedEntries.first(where: { $0.id == entryID })
-            case .some(let groupID):
-                return workspace.projects[location.projectIndex].groups.first(where: { $0.id == groupID })?.entries.first(where: { $0.id == entryID })
-            }
-        }
+        guard let location = location(of: entryID) else { return nil }
+        return workspace.project(at: location.projectLocation).terminals[location.entryIndex]
     }
 
     func projectName(for projectID: UUID) -> String? {
-        workspace.projects.first(where: { $0.id == projectID })?.name
+        guard let location = workspace.location(ofProject: projectID) else { return nil }
+        return workspace.project(at: location).name
     }
 
     func renameProject(_ projectID: UUID, to name: String) throws {
-        guard let index = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
+        guard let location = workspace.location(ofProject: projectID) else {
             throw ProjectSidebarMutationError.projectNotFound
         }
+        var project = workspace.project(at: location)
+        project.name = name
         var updated = workspace
-        updated.projects[index].name = name
+        updated.replaceProject(at: location, with: project)
         try commit(updated)
     }
 
-    func createGroup(in projectID: UUID, name: String) throws -> UUID {
-        guard let projectIndex = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
-        let group = ProjectSidebarGroup(name: name)
-        var updated = workspace
-        updated.projects[projectIndex].groups.append(group)
-        try commit(updated)
-        return group.id
-    }
-
-    func renameGroup(_ groupID: UUID, in projectID: UUID, to name: String) throws {
-        guard let projectIndex = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
-        guard let groupIndex = workspace.projects[projectIndex].groups.firstIndex(where: { $0.id == groupID }) else {
+    func renameGroup(_ groupID: UUID, to name: String) throws {
+        guard let groupIndex = workspace.groups.firstIndex(where: { $0.id == groupID }) else {
             throw ProjectSidebarMutationError.groupNotFound
         }
         var updated = workspace
-        updated.projects[projectIndex].groups[groupIndex].name = name
+        updated.groups[groupIndex].name = name
         try commit(updated)
     }
 
@@ -226,60 +235,95 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         guard let location = location(of: entryID) else {
             throw ProjectSidebarMutationError.terminalNotFound
         }
+        var project = workspace.project(at: location.projectLocation)
+        project.terminals[location.entryIndex].name = name
         var updated = workspace
-        if let groupID = location.groupID,
-           let groupIndex = updated.projects[location.projectIndex].groups.firstIndex(where: { $0.id == groupID }),
-           let entryIndex = updated.projects[location.projectIndex].groups[groupIndex].entries.firstIndex(where: { $0.id == entryID }) {
-            updated.projects[location.projectIndex].groups[groupIndex].entries[entryIndex].name = name
-        } else if let entryIndex = updated.projects[location.projectIndex].ungroupedEntries.firstIndex(where: { $0.id == entryID }) {
-            updated.projects[location.projectIndex].ungroupedEntries[entryIndex].name = name
-        }
+        updated.replaceProject(at: location.projectLocation, with: project)
         try commit(updated)
     }
 
-    func moveTerminal(_ entryID: UUID, toGroup groupID: UUID?) throws {
-        guard let location = location(of: entryID) else {
-            throw ProjectSidebarMutationError.terminalNotFound
+    func moveProject(_ projectID: UUID, toGroup groupID: UUID?, before destinationID: UUID? = nil) throws {
+        guard workspace.location(ofProject: projectID) != nil else {
+            throw ProjectSidebarMutationError.projectNotFound
         }
-        var updated = workspace
-        let project = updated.projects[location.projectIndex]
-        var entry: ProjectSidebarTerminal?
-        if let sourceGroupID = location.groupID,
-           let sourceIndex = project.groups.firstIndex(where: { $0.id == sourceGroupID }) {
-            entry = updated.projects[location.projectIndex].groups[sourceIndex].entries.remove(
-                at: project.groups[sourceIndex].entries.firstIndex(where: { $0.id == entryID })!
-            )
-        } else if let sourceIndex = project.ungroupedEntries.firstIndex(where: { $0.id == entryID }) {
-            entry = updated.projects[location.projectIndex].ungroupedEntries.remove(at: sourceIndex)
-        }
-        guard let entry else { throw ProjectSidebarMutationError.terminalNotFound }
-
         if let groupID {
-            guard let groupIndex = updated.projects[location.projectIndex].groups.firstIndex(where: { $0.id == groupID }) else {
+            guard workspace.groups.contains(where: { $0.id == groupID }) else {
                 throw ProjectSidebarMutationError.groupNotFound
             }
-            updated.projects[location.projectIndex].groups[groupIndex].entries.append(entry)
-        } else {
-            updated.projects[location.projectIndex].ungroupedEntries.append(entry)
         }
+        var updated = workspace
+        guard updated.moveProject(projectID, toGroup: groupID, before: destinationID) else { return }
         try commit(updated)
+    }
+
+    func moveProject(
+        _ projectID: UUID,
+        toGroup groupID: UUID?,
+        relativeTo destinationID: UUID,
+        after: Bool
+    ) throws {
+        let destinationProjects: [ProjectSidebarProject]
+        if let groupID {
+            guard let group = workspace.groups.first(where: { $0.id == groupID }) else {
+                throw ProjectSidebarMutationError.groupNotFound
+            }
+            destinationProjects = group.projects
+        } else {
+            destinationProjects = workspace.ungroupedProjects
+        }
+        guard let destinationIndex = destinationProjects.firstIndex(where: { $0.id == destinationID }) else {
+            throw ProjectSidebarMutationError.projectNotFound
+        }
+        let beforeID = after && destinationProjects.indices.contains(destinationIndex + 1)
+            ? destinationProjects[destinationIndex + 1].id
+            : (after ? nil : destinationID)
+        try moveProject(projectID, toGroup: groupID, before: beforeID)
+    }
+
+    func moveGroup(_ groupID: UUID, before destinationID: UUID?) throws {
+        guard workspace.groups.contains(where: { $0.id == groupID }) else {
+            throw ProjectSidebarMutationError.groupNotFound
+        }
+        var updated = workspace
+        guard updated.moveGroup(groupID, before: destinationID) else { return }
+        try commit(updated)
+    }
+
+    func moveGroup(_ groupID: UUID, relativeTo destinationID: UUID, after: Bool) throws {
+        guard let destinationIndex = workspace.groups.firstIndex(where: { $0.id == destinationID }) else {
+            throw ProjectSidebarMutationError.groupNotFound
+        }
+        let beforeID = after && workspace.groups.indices.contains(destinationIndex + 1)
+            ? workspace.groups[destinationIndex + 1].id
+            : (after ? nil : destinationID)
+        try moveGroup(groupID, before: beforeID)
+    }
+
+    func performSidebarMutation(_ mutation: () throws -> Void) {
+        do {
+            try mutation()
+        } catch {
+            present(error: error)
+        }
     }
 
     func replaceProjectBaseFolder(_ projectID: UUID, with folder: String) throws {
         guard ProjectSidebarWorkspaceValidator.isDirectoryAvailable(folder) else {
             throw ProjectSidebarMutationError.baseFolderUnavailable
         }
-        guard let index = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
+        guard let location = workspace.location(ofProject: projectID) else {
             throw ProjectSidebarMutationError.projectNotFound
         }
         let folderKey = ProjectSidebarWorkspaceValidator.canonicalFolderKey(folder)
-        guard !workspace.projects.enumerated().contains(where: { offset, project in
-            offset != index && ProjectSidebarWorkspaceValidator.canonicalFolderKey(project.baseFolder) == folderKey
+        guard !workspace.projects.contains(where: {
+            $0.id != projectID && ProjectSidebarWorkspaceValidator.canonicalFolderKey($0.baseFolder) == folderKey
         }) else {
             throw ProjectSidebarMutationError.duplicateBaseFolder
         }
+        var project = workspace.project(at: location)
+        project.baseFolder = folder
         var updated = workspace
-        updated.projects[index].baseFolder = folder
+        updated.replaceProject(at: location, with: project)
         try commit(updated)
     }
 
@@ -290,36 +334,28 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         guard let location = location(of: entryID) else {
             throw ProjectSidebarMutationError.terminalNotFound
         }
+        var project = workspace.project(at: location.projectLocation)
+        project.terminals[location.entryIndex].launchDirectory = folder
         var updated = workspace
-        if let groupID = location.groupID,
-           let groupIndex = updated.projects[location.projectIndex].groups.firstIndex(where: { $0.id == groupID }),
-           let entryIndex = updated.projects[location.projectIndex].groups[groupIndex].entries.firstIndex(where: { $0.id == entryID }) {
-            updated.projects[location.projectIndex].groups[groupIndex].entries[entryIndex].launchDirectory = folder
-        } else if let entryIndex = updated.projects[location.projectIndex].ungroupedEntries.firstIndex(where: { $0.id == entryID }) {
-            updated.projects[location.projectIndex].ungroupedEntries[entryIndex].launchDirectory = folder
-        }
+        updated.replaceProject(at: location.projectLocation, with: project)
         try commit(updated)
         launchFailures.remove(entryID)
     }
 
-    func deleteGroup(_ groupID: UUID, in projectID: UUID) throws {
-        guard let projectIndex = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
-        guard let groupIndex = workspace.projects[projectIndex].groups.firstIndex(where: { $0.id == groupID }) else {
+    func deleteGroup(_ groupID: UUID) throws {
+        guard let groupIndex = workspace.groups.firstIndex(where: { $0.id == groupID }) else {
             throw ProjectSidebarMutationError.groupNotFound
         }
         var updated = workspace
-        let group = updated.projects[projectIndex].groups.remove(at: groupIndex)
-        updated.projects[projectIndex].ungroupedEntries.append(contentsOf: group.entries)
+        let group = updated.groups.remove(at: groupIndex)
+        updated.ungroupedProjects.append(contentsOf: group.projects)
         try commit(updated)
     }
 
     @discardableResult
     func deleteTerminal(_ entryID: UUID, confirmRunning: Bool = true) -> Bool {
         guard let location = location(of: entryID) else { return false }
-        let isRunning = runtimeRegistry.isRunning(entryID: entryID)
-        if isRunning && confirmRunning {
+        if runtimeRegistry.isRunning(entryID: entryID) && confirmRunning {
             let alert = NSAlert()
             alert.messageText = "Delete Terminal?"
             alert.informativeText = "This will stop the running terminal."
@@ -329,18 +365,11 @@ final class ProjectSidebarController: NSObject, ObservableObject {
             guard alert.runModal() == .alertFirstButtonReturn else { return false }
         }
 
+        var project = workspace.project(at: location.projectLocation)
+        project.terminals.remove(at: location.entryIndex)
         var updated = workspace
-        if let groupID = location.groupID,
-           let groupIndex = updated.projects[location.projectIndex].groups.firstIndex(where: { $0.id == groupID }) {
-            updated.projects[location.projectIndex].groups[groupIndex].entries.removeAll(where: { $0.id == entryID })
-        } else {
-            updated.projects[location.projectIndex].ungroupedEntries.removeAll(where: { $0.id == entryID })
-        }
-        do {
-            try commit(updated)
-        } catch {
-            return false
-        }
+        updated.replaceProject(at: location.projectLocation, with: project)
+        do { try commit(updated) } catch { return false }
         runtimeRegistry.stop(entryID: entryID)
         launchFailures.remove(entryID)
         if selectedEntryID == entryID { selectedEntryID = nil }
@@ -349,8 +378,9 @@ final class ProjectSidebarController: NSObject, ObservableObject {
 
     @discardableResult
     func deleteProject(_ projectID: UUID, confirm: Bool = true) -> Bool {
-        guard let project = workspace.projects.first(where: { $0.id == projectID }) else { return false }
-        let entryIDs = project.allEntries.map(\.id)
+        guard let location = workspace.location(ofProject: projectID) else { return false }
+        let project = workspace.project(at: location)
+        let entryIDs = project.terminals.map(\.id)
         let runningCount = entryIDs.filter { runtimeRegistry.isRunning(entryID: $0) }.count
         if confirm {
             let alert = NSAlert()
@@ -362,12 +392,8 @@ final class ProjectSidebarController: NSObject, ObservableObject {
             guard alert.runModal() == .alertFirstButtonReturn else { return false }
         }
         var updated = workspace
-        updated.projects.removeAll(where: { $0.id == projectID })
-        do {
-            try commit(updated)
-        } catch {
-            return false
-        }
+        updated.removeProject(at: location)
+        do { try commit(updated) } catch { return false }
         entryIDs.forEach { runtimeRegistry.stop(entryID: $0); launchFailures.remove($0) }
         if selectedProjectID == projectID {
             selectedProjectID = nil
@@ -388,68 +414,58 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         }
     }
 
-    private func chooseFolder(_ completion: @escaping (String) -> Void) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose Folder"
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            completion(url.path)
-        }
-    }
-
-    func reorderProjects(from source: Int, to destination: Int) throws {
-        guard workspace.projects.indices.contains(source), workspace.projects.indices.contains(destination) else { return }
+    func reorderGroups(from source: Int, to destination: Int) throws {
         var updated = workspace
-        let project = updated.projects.remove(at: source)
-        updated.projects.insert(project, at: min(destination, updated.projects.count))
+        guard moveItem(in: &updated.groups, from: source, to: destination) else { return }
         try commit(updated)
     }
 
-    func reorderGroups(in projectID: UUID, from source: Int, to destination: Int) throws {
-        guard let projectIndex = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
-        guard workspace.projects[projectIndex].groups.indices.contains(source),
-              workspace.projects[projectIndex].groups.indices.contains(destination) else { return }
-        var updated = workspace
-        let group = updated.projects[projectIndex].groups.remove(at: source)
-        updated.projects[projectIndex].groups.insert(group, at: min(destination, updated.projects[projectIndex].groups.count))
-        try commit(updated)
-    }
-
-    func reorderTerminals(in projectID: UUID, groupID: UUID?, from source: Int, to destination: Int) throws {
-        guard let projectIndex = workspace.projects.firstIndex(where: { $0.id == projectID }) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
+    func reorderProjects(inGroup groupID: UUID?, from source: Int, to destination: Int) throws {
         var updated = workspace
         if let groupID {
-            guard let groupIndex = updated.projects[projectIndex].groups.firstIndex(where: { $0.id == groupID }) else {
+            guard let groupIndex = updated.groups.firstIndex(where: { $0.id == groupID }) else {
                 throw ProjectSidebarMutationError.groupNotFound
             }
-            guard updated.projects[projectIndex].groups[groupIndex].entries.indices.contains(source),
-                  updated.projects[projectIndex].groups[groupIndex].entries.indices.contains(destination) else { return }
-            let entry = updated.projects[projectIndex].groups[groupIndex].entries.remove(at: source)
-            updated.projects[projectIndex].groups[groupIndex].entries.insert(entry, at: min(destination, updated.projects[projectIndex].groups[groupIndex].entries.count))
+            guard moveItem(in: &updated.groups[groupIndex].projects, from: source, to: destination) else { return }
         } else {
-            guard updated.projects[projectIndex].ungroupedEntries.indices.contains(source),
-                  updated.projects[projectIndex].ungroupedEntries.indices.contains(destination) else { return }
-            let entry = updated.projects[projectIndex].ungroupedEntries.remove(at: source)
-            updated.projects[projectIndex].ungroupedEntries.insert(entry, at: min(destination, updated.projects[projectIndex].ungroupedEntries.count))
+            guard moveItem(in: &updated.ungroupedProjects, from: source, to: destination) else { return }
         }
         try commit(updated)
     }
 
-    func location(of entryID: UUID) -> (projectIndex: Int, projectID: UUID, groupID: UUID?)? {
-        for (projectIndex, project) in workspace.projects.enumerated() {
-            if project.ungroupedEntries.contains(where: { $0.id == entryID }) {
-                return (projectIndex, project.id, nil)
-            }
-            for group in project.groups where group.entries.contains(where: { $0.id == entryID }) {
-                return (projectIndex, project.id, group.id)
-            }
+    func reorderTerminals(in projectID: UUID, from source: Int, to destination: Int) throws {
+        guard let location = workspace.location(ofProject: projectID) else {
+            throw ProjectSidebarMutationError.projectNotFound
+        }
+        var project = workspace.project(at: location)
+        guard moveItem(in: &project.terminals, from: source, to: destination) else { return }
+        var updated = workspace
+        updated.replaceProject(at: location, with: project)
+        try commit(updated)
+    }
+
+    func moveTerminal(_ entryID: UUID, before destinationID: UUID?) throws {
+        guard let source = location(of: entryID) else {
+            throw ProjectSidebarMutationError.terminalNotFound
+        }
+        var project = workspace.project(at: source.projectLocation)
+        let destination = destinationID.flatMap { id in project.terminals.firstIndex(where: { $0.id == id }) }
+            ?? project.terminals.count
+        guard moveItem(in: &project.terminals, from: source.entryIndex, to: destination) else { return }
+        var updated = workspace
+        updated.replaceProject(at: source.projectLocation, with: project)
+        try commit(updated)
+    }
+
+    func location(of entryID: UUID) -> (
+        projectLocation: ProjectSidebarProjectLocation,
+        projectID: UUID,
+        entryIndex: Int
+    )? {
+        for project in workspace.projects {
+            guard let entryIndex = project.terminals.firstIndex(where: { $0.id == entryID }),
+                  let projectLocation = workspace.location(ofProject: project.id) else { continue }
+            return (projectLocation, project.id, entryIndex)
         }
         return nil
     }
@@ -459,8 +475,8 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     }
 
     func performNewTerminal() {
-        if let projectID = selectedProjectID {
-            do { _ = try createTerminal(in: projectID) } catch { present(error: error) }
+        if let selectedProjectID {
+            do { _ = try createTerminal(in: selectedProjectID) } catch { present(error: error) }
         } else {
             createProjectFromFolderPicker()
         }
@@ -474,18 +490,16 @@ final class ProjectSidebarController: NSObject, ObservableObject {
 
     func setExpanded(id: UUID, expanded: Bool) {
         var updated = workspace
-        for projectIndex in updated.projects.indices {
-            if updated.projects[projectIndex].id == id {
-                updated.projects[projectIndex].isExpanded = expanded
-                try? commit(updated)
-                return
-            }
-            if let groupIndex = updated.projects[projectIndex].groups.firstIndex(where: { $0.id == id }) {
-                updated.projects[projectIndex].groups[groupIndex].isExpanded = expanded
-                try? commit(updated)
-                return
-            }
+        if let groupIndex = updated.groups.firstIndex(where: { $0.id == id }) {
+            updated.groups[groupIndex].isExpanded = expanded
+            try? commit(updated)
+            return
         }
+        guard let location = updated.location(ofProject: id) else { return }
+        var project = updated.project(at: location)
+        project.isExpanded = expanded
+        updated.replaceProject(at: location, with: project)
+        try? commit(updated)
     }
 
     func setSidebarVisible(_ visible: Bool) {
@@ -506,7 +520,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     func confirmQuit() -> NSApplication.TerminateReply {
         let count = runtimeRegistry.runningEntryCount
         guard count > 0 else { return .terminateNow }
-
         let alert = NSAlert()
         alert.messageText = "Quit Ghostty?"
         alert.informativeText = "\(count) running session\(count == 1 ? "" : "s") will stop."
@@ -514,12 +527,51 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
         guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
-        runtimeRegistry.stopAll()
         return .terminateNow
     }
 
-    func stopAllRuntimes() {
-        runtimeRegistry.stopAll()
+    func stopAllRuntimes() { runtimeRegistry.stopAll() }
+
+    func updateRuntimeFocus() {
+        for (entryID, runtime) in runtimeRegistry.runtimes {
+            runtime.controller.setExternallyManagedWindowKeyState(
+                hasKeyWindow && entryID == selectedEntryID
+            )
+        }
+    }
+
+    private func chooseFolder(prompt: String = "Choose Folder", _ completion: @escaping (String) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = prompt
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            completion(url.path)
+        }
+    }
+
+    private func nextAvailableGroupName() -> String {
+        let names = Set(workspace.groups.map { ProjectSidebarWorkspaceValidator.normalizedName($0.name) })
+        var number = 1
+        while names.contains("group \(number)") { number += 1 }
+        return "Group \(number)"
+    }
+
+    private func nextAvailableTerminalName(in project: ProjectSidebarProject) -> String {
+        let names = Set(project.terminals.map { ProjectSidebarWorkspaceValidator.normalizedName($0.name) })
+        var number = 1
+        while names.contains("terminal \(number)") { number += 1 }
+        return "Terminal \(number)"
+    }
+
+    private func moveItem<Element>(in values: inout [Element], from source: Int, to destination: Int) -> Bool {
+        guard values.indices.contains(source), destination >= 0, destination <= values.count else { return false }
+        let value = values.remove(at: source)
+        let adjustedDestination = destination > source ? destination - 1 : destination
+        values.insert(value, at: min(adjustedDestination, values.count))
+        return true
     }
 
     private func commit(_ updated: ProjectSidebarWorkspace) throws {
@@ -535,7 +587,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     }
 
     private func present(error: Error) {
-        let alert = NSAlert(error: error)
-        alert.runModal()
+        NSAlert(error: error).runModal()
     }
 }

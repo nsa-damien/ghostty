@@ -67,8 +67,23 @@ final class ProjectSidebarStore {
         do {
             let workspace = try read(primaryURL)
             return .init(workspace: workspace, recoveredFromBackup: false, notice: nil)
-        } catch {
+        } catch let error as ProjectSidebarStoreError {
+            switch error {
+            case .unsupportedVersion:
+                return .init(
+                    workspace: .empty,
+                    recoveredFromBackup: false,
+                    notice: error.localizedDescription
+                )
+            case .invalidWorkspace:
+                quarantine(primaryURL, suffix: "primary")
+            case .unavailable:
+                break
+            }
+        } catch is DecodingError {
             quarantine(primaryURL, suffix: "primary")
+        } catch {
+            // Preserve a potentially valid primary file on transient filesystem failures.
         }
 
         do {
@@ -127,7 +142,7 @@ final class ProjectSidebarStore {
 
     private func migrate(_ envelope: ProjectSidebarEnvelope) throws -> ProjectSidebarWorkspace {
         switch envelope.version {
-        case 0, ProjectSidebarWorkspace.currentVersion:
+        case 0...ProjectSidebarWorkspace.currentVersion:
             return envelope.workspace
         default:
             throw ProjectSidebarStoreError.unsupportedVersion(envelope.version)

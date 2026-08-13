@@ -122,6 +122,36 @@
 			<key>UTTypeTagSpecification</key>
 			<dict/>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mitchellh.ghostty.project-sidebar.folder</string>
+			<key>UTTypeDescription</key>
+			<string>Ghostty Project Sidebar Folder</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mitchellh.ghostty.project-sidebar.project</string>
+			<key>UTTypeDescription</key>
+			<string>Ghostty Project Sidebar Project</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.mitchellh.ghostty.project-sidebar.terminal</string>
+			<key>UTTypeDescription</key>
+			<string>Ghostty Project Sidebar Terminal</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

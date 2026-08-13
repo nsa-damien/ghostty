@@ -413,7 +413,9 @@ class AppDelegate: NSObject,
 
         // If our app says we don't need to confirm, we can exit now.
         if projectSidebarController.runtimeRegistry.runningEntryCount > 0 {
-            return projectSidebarController.confirmQuit()
+            guard projectSidebarController.confirmQuit() != .terminateCancel else {
+                return .terminateCancel
+            }
         }
         if !ghostty.needsConfirmQuit { return .terminateNow }
 
@@ -578,7 +580,7 @@ class AppDelegate: NSObject,
 
     private func localEventKeyDown(_ event: NSEvent) -> NSEvent? {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           projectSidebarController.hasVisibleWindow {
+           projectSidebarController.hasKeyWindow {
             switch event.keyCode {
             case 0x11: // T
                 projectSidebarController.performNewTerminal()
@@ -983,7 +985,7 @@ class AppDelegate: NSObject,
     }
 
     @IBAction func newTab(_ sender: Any?) {
-        if projectSidebarController.hasVisibleWindow {
+        if projectSidebarController.hasKeyWindow {
             projectSidebarController.performNewTerminal()
             return
         }

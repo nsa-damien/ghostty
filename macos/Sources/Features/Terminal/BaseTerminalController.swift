@@ -85,6 +85,10 @@ class BaseTerminalController: NSWindowController,
     /// Cache previously applied appearance to avoid unnecessary updates
     private var appliedColorScheme: ghostty_color_scheme_e?
 
+    /// Non-nil when a terminal is hosted by a window controller other than this controller.
+    /// The Project Sidebar uses this because its runtime controllers intentionally own no window.
+    private var externallyManagedWindowIsKey: Bool?
+
     /// The configuration derived from the Ghostty config so we don't need to rely on references.
     private var derivedConfig: DerivedConfig
 
@@ -348,11 +352,12 @@ class BaseTerminalController: NSWindowController,
     /// Update all surfaces with the focus state. This ensures that libghostty has an accurate view about
     /// what surface is focused. This must be called whenever a surface OR window changes focus.
     func syncFocusToSurfaceTree() {
+        let windowIsKey = externallyManagedWindowIsKey ?? (window?.isKeyWindow ?? false)
         var newlyFocused: Ghostty.SurfaceView?
         for surfaceView in surfaceTree {
             // Our focus state requires that this window is key and our currently
             // focused surface is the surface in this view.
-            let focused: Bool = (window?.isKeyWindow ?? false) &&
+            let focused: Bool = windowIsKey &&
                 surfaceView == focusedSurface &&
                 surfaceView.isFirstResponder
             surfaceView.focusDidChange(focused)
@@ -362,6 +367,18 @@ class BaseTerminalController: NSWindowController,
         if let newlyFocused {
             presentPendingClipboardConfirmation(for: newlyFocused)
         }
+    }
+
+    func setExternallyManagedWindowKeyState(_ isKey: Bool?) {
+        externallyManagedWindowIsKey = isKey
+        syncFocusToSurfaceTree()
+    }
+
+    /// Tear down every surface without registering terminal undo. Used by app-owned
+    /// workspace entries whose persistent metadata outlives their process tree.
+    func stopAllSurfacesImmediately() {
+        focusedSurface = nil
+        surfaceTree = .init()
     }
 
     // Call this whenever the frame changes

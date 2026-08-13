@@ -44,10 +44,10 @@ final class ProjectSidebarRuntime: NSObject {
     }
 
     var status: ProjectSidebarEntryStatus {
-        guard let first = controller.surfaceTree.first else { return .stopped }
+        guard !controller.surfaceTree.isEmpty else { return .stopped }
         return controller.surfaceTree.contains(where: { !$0.processExited })
             ? .running
-            : (first.processExited ? .stopped : .running)
+            : .stopped
     }
 }
 
@@ -68,10 +68,11 @@ final class ProjectSidebarRuntimeRegistry: ObservableObject {
     }
 
     func stop(entryID: UUID) {
-        runtimes.removeValue(forKey: entryID)
+        runtimes.removeValue(forKey: entryID)?.controller.stopAllSurfacesImmediately()
     }
 
     func stopAll() {
+        runtimes.values.forEach { $0.controller.stopAllSurfacesImmediately() }
         runtimes.removeAll()
     }
 

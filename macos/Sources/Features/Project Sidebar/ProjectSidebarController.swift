@@ -256,30 +256,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         try commit(updated)
     }
 
-    func moveProject(
-        _ projectID: UUID,
-        toGroup groupID: UUID?,
-        relativeTo destinationID: UUID,
-        after: Bool
-    ) throws {
-        let destinationProjects: [ProjectSidebarProject]
-        if let groupID {
-            guard let group = workspace.groups.first(where: { $0.id == groupID }) else {
-                throw ProjectSidebarMutationError.groupNotFound
-            }
-            destinationProjects = group.projects
-        } else {
-            destinationProjects = workspace.ungroupedProjects
-        }
-        guard let destinationIndex = destinationProjects.firstIndex(where: { $0.id == destinationID }) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
-        let beforeID = after && destinationProjects.indices.contains(destinationIndex + 1)
-            ? destinationProjects[destinationIndex + 1].id
-            : (after ? nil : destinationID)
-        try moveProject(projectID, toGroup: groupID, before: beforeID)
-    }
-
     func moveGroup(_ groupID: UUID, before destinationID: UUID?) throws {
         guard workspace.groups.contains(where: { $0.id == groupID }) else {
             throw ProjectSidebarMutationError.groupNotFound
@@ -287,16 +263,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         var updated = workspace
         guard updated.moveGroup(groupID, before: destinationID) else { return }
         try commit(updated)
-    }
-
-    func moveGroup(_ groupID: UUID, relativeTo destinationID: UUID, after: Bool) throws {
-        guard let destinationIndex = workspace.groups.firstIndex(where: { $0.id == destinationID }) else {
-            throw ProjectSidebarMutationError.groupNotFound
-        }
-        let beforeID = after && workspace.groups.indices.contains(destinationIndex + 1)
-            ? workspace.groups[destinationIndex + 1].id
-            : (after ? nil : destinationID)
-        try moveGroup(groupID, before: beforeID)
     }
 
     func performSidebarMutation(_ mutation: () throws -> Void) {
@@ -412,36 +378,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         chooseFolder { [weak self] folder in
             try? self?.replaceTerminalDirectory(entryID, with: folder)
         }
-    }
-
-    func reorderGroups(from source: Int, to destination: Int) throws {
-        var updated = workspace
-        guard moveItem(in: &updated.groups, from: source, to: destination) else { return }
-        try commit(updated)
-    }
-
-    func reorderProjects(inGroup groupID: UUID?, from source: Int, to destination: Int) throws {
-        var updated = workspace
-        if let groupID {
-            guard let groupIndex = updated.groups.firstIndex(where: { $0.id == groupID }) else {
-                throw ProjectSidebarMutationError.groupNotFound
-            }
-            guard moveItem(in: &updated.groups[groupIndex].projects, from: source, to: destination) else { return }
-        } else {
-            guard moveItem(in: &updated.ungroupedProjects, from: source, to: destination) else { return }
-        }
-        try commit(updated)
-    }
-
-    func reorderTerminals(in projectID: UUID, from source: Int, to destination: Int) throws {
-        guard let location = workspace.location(ofProject: projectID) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
-        var project = workspace.project(at: location)
-        guard moveItem(in: &project.terminals, from: source, to: destination) else { return }
-        var updated = workspace
-        updated.replaceProject(at: location, with: project)
-        try commit(updated)
     }
 
     func moveTerminal(_ entryID: UUID, before destinationID: UUID?) throws {

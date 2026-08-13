@@ -174,4 +174,157 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertTrue(workspace.moveGroup(archive.id, before: nil))
         XCTAssertEqual(workspace.groups.map(\.id), [controlRoom.id, clientWork.id, archive.id])
     }
+
+    func testDropPlannerMovesUngroupedProjectIntoFolder() {
+        let relay = ProjectSidebarProject(name: "Relay", baseFolder: "/tmp/relay")
+        let exodus = ProjectSidebarProject(name: "Exodus", baseFolder: "/tmp/exodus")
+        let controlRoom = ProjectSidebarGroup(name: "Control Room", projects: [relay])
+        let workspace = ProjectSidebarWorkspace(
+            groups: [controlRoom],
+            ungroupedProjects: [exodus]
+        )
+
+        XCTAssertEqual(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .project(exodus.id),
+                onto: .folder(controlRoom.id),
+                in: workspace
+            ),
+            .moveProject(exodus.id, toGroup: controlRoom.id, before: nil)
+        )
+    }
+
+    func testDropPlannerMovesProjectBetweenFoldersAtRequestedPosition() {
+        let relay = ProjectSidebarProject(name: "Relay", baseFolder: "/tmp/relay")
+        let exodus = ProjectSidebarProject(name: "Exodus", baseFolder: "/tmp/exodus")
+        let dataWrangler = ProjectSidebarProject(name: "Data Wrangler", baseFolder: "/tmp/data-wrangler")
+        let controlRoom = ProjectSidebarGroup(name: "Control Room", projects: [relay, exodus])
+        let archive = ProjectSidebarGroup(name: "Archive", projects: [dataWrangler])
+        let workspace = ProjectSidebarWorkspace(groups: [controlRoom, archive])
+
+        XCTAssertEqual(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .project(dataWrangler.id),
+                onto: .projects(groupID: controlRoom.id, index: 1),
+                in: workspace
+            ),
+            .moveProject(dataWrangler.id, toGroup: controlRoom.id, before: exodus.id)
+        )
+    }
+
+    func testDropPlannerReordersFoldersAtRequestedPosition() {
+        let controlRoom = ProjectSidebarGroup(name: "Control Room")
+        let clientWork = ProjectSidebarGroup(name: "Client Work")
+        let archive = ProjectSidebarGroup(name: "Archive")
+        let workspace = ProjectSidebarWorkspace(groups: [controlRoom, clientWork, archive])
+
+        XCTAssertEqual(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .group(archive.id),
+                onto: .folders(index: 0),
+                in: workspace
+            ),
+            .moveGroup(archive.id, before: controlRoom.id)
+        )
+    }
+
+    func testDropPlannerOnlyReordersTerminalsWithinTheirProject() {
+        let shell = ProjectSidebarTerminal(name: "Shell", launchDirectory: "/tmp")
+        let logs = ProjectSidebarTerminal(name: "Logs", launchDirectory: "/tmp")
+        let other = ProjectSidebarTerminal(name: "Other", launchDirectory: "/tmp")
+        let relay = ProjectSidebarProject(
+            name: "Relay",
+            baseFolder: "/tmp/relay",
+            terminals: [shell, logs]
+        )
+        let exodus = ProjectSidebarProject(
+            name: "Exodus",
+            baseFolder: "/tmp/exodus",
+            terminals: [other]
+        )
+        let workspace = ProjectSidebarWorkspace(ungroupedProjects: [relay, exodus])
+
+        XCTAssertEqual(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .terminal(logs.id),
+                onto: .terminals(projectID: relay.id, index: 0),
+                in: workspace
+            ),
+            .moveTerminal(logs.id, before: shell.id)
+        )
+        XCTAssertNil(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .terminal(logs.id),
+                onto: .terminals(projectID: exodus.id, index: 0),
+                in: workspace
+            )
+        )
+    }
+
+    func testDropPlannerAddsFinderFolderToFolderOrUngroupedProjects() {
+        let controlRoom = ProjectSidebarGroup(name: "Control Room")
+        let workspace = ProjectSidebarWorkspace(groups: [controlRoom])
+        let url = URL(fileURLWithPath: "/tmp/relay")
+
+        XCTAssertEqual(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .folderURL(url),
+                onto: .folder(controlRoom.id),
+                in: workspace
+            ),
+            .createProject(url, inGroup: controlRoom.id)
+        )
+        XCTAssertEqual(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .folderURL(url),
+                onto: .projects(groupID: nil, index: 0),
+                in: workspace
+            ),
+            .createProject(url, inGroup: nil)
+        )
+    }
+
+    func testNativePasteboardItemsCarryStableSidebarIdentifiers() {
+        let groupID = UUID()
+        let projectID = UUID()
+        let terminalID = UUID()
+
+        XCTAssertEqual(
+            ProjectSidebarPasteboard.item(for: .group(groupID))
+                .string(forType: ProjectSidebarPasteboard.folderType),
+            groupID.uuidString
+        )
+        XCTAssertEqual(
+            ProjectSidebarPasteboard.item(for: .project(projectID))
+                .string(forType: ProjectSidebarPasteboard.projectType),
+            projectID.uuidString
+        )
+        XCTAssertEqual(
+            ProjectSidebarPasteboard.item(for: .terminal(terminalID))
+                .string(forType: ProjectSidebarPasteboard.terminalType),
+            terminalID.uuidString
+        )
+    }
+
+    func testDropPlannerRejectsCrossTypeDestinations() {
+        let group = ProjectSidebarGroup(name: "Control Room")
+        let project = ProjectSidebarProject(name: "Relay", baseFolder: "/tmp/relay")
+        let terminal = ProjectSidebarTerminal(name: "Shell", launchDirectory: "/tmp")
+        let workspace = ProjectSidebarWorkspace(groups: [group], ungroupedProjects: [project])
+
+        XCTAssertNil(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .group(group.id),
+                onto: .projects(groupID: nil, index: 0),
+                in: workspace
+            )
+        )
+        XCTAssertNil(
+            ProjectSidebarDropPlanner.plan(
+                dragging: .terminal(terminal.id),
+                onto: .folder(group.id),
+                in: workspace
+            )
+        )
+    }
 }

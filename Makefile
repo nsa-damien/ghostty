@@ -1,3 +1,24 @@
+MACOS_APP := $(CURDIR)/macos/build/Debug/Ghostty.app
+MACOS_BUILD_ENV := env -i HOME="$(HOME)" PATH=/usr/bin:/bin:/usr/sbin:/sbin TOOLCHAINS=Metal
+
+help:
+	@echo "Ghostty development commands:"
+	@echo "  make run    Rebuild and launch a new debug macOS app instance"
+	@echo "  make clean  Remove Zig and macOS build artifacts"
+	@echo "  make glad   Update the vendored GLAD loader from glad.zip"
+.PHONY: help
+
+run:
+	TOOLCHAINS=Metal zig build -Demit-macos-app=false
+	$(MACOS_BUILD_ENV) xcodebuild \
+		-project macos/Ghostty.xcodeproj \
+		-scheme Ghostty \
+		-configuration Debug \
+		SYMROOT="$(CURDIR)/macos/build" \
+		build
+	open -n "$(MACOS_APP)"
+.PHONY: run
+
 init:
 	@echo You probably want to run "zig build" instead.
 .PHONY: init

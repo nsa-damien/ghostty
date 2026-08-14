@@ -92,10 +92,8 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         let terminal = ProjectSidebarTerminal(name: "Terminal 1", launchDirectory: baseFolder)
         let project = ProjectSidebarProject(name: projectName, baseFolder: baseFolder, terminals: [terminal])
         var updated = workspace
-        if let groupID, let groupIndex = updated.groups.firstIndex(where: { $0.id == groupID }) {
-            updated.groups[groupIndex].projects.append(project)
-        } else {
-            updated.ungroupedProjects.append(project)
+        guard updated.appendProject(project, toGroup: groupID) else {
+            throw ProjectSidebarMutationError.groupNotFound
         }
         try commit(updated)
         selectedProjectID = project.id
@@ -323,9 +321,9 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         guard let location = location(of: entryID) else { return false }
         if runtimeRegistry.isRunning(entryID: entryID) && confirmRunning {
             let alert = NSAlert()
-            alert.messageText = "Delete Terminal?"
-            alert.informativeText = "This will stop the running terminal."
-            alert.addButton(withTitle: "Delete")
+            alert.messageText = "Remove Terminal?"
+            alert.informativeText = "This removes the terminal from the project and stops its running session. Files on disk are not affected."
+            alert.addButton(withTitle: "Remove")
             alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .warning
             guard alert.runModal() == .alertFirstButtonReturn else { return false }
@@ -350,9 +348,9 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         let runningCount = entryIDs.filter { runtimeRegistry.isRunning(entryID: $0) }.count
         if confirm {
             let alert = NSAlert()
-            alert.messageText = "Delete Project?"
-            alert.informativeText = "This will stop \(runningCount) running terminal\(runningCount == 1 ? "" : "s")."
-            alert.addButton(withTitle: "Delete")
+            alert.messageText = "Remove Project?"
+            alert.informativeText = "This removes the project from the sidebar and stops \(runningCount) running terminal\(runningCount == 1 ? "" : "s"). Files on disk are not affected."
+            alert.addButton(withTitle: "Remove")
             alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .warning
             guard alert.runModal() == .alertFirstButtonReturn else { return false }
@@ -445,11 +443,12 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     }
 
     func setSidebarWidth(_ width: Double) {
+        guard let width = ProjectSidebarWidthPersistence.updatedWidth(
+            current: workspace.sidebarWidth,
+            measured: width
+        ) else { return }
         var updated = workspace
-        updated.sidebarWidth = min(
-            ProjectSidebarWorkspaceValidator.maximumSidebarWidth,
-            max(ProjectSidebarWorkspaceValidator.minimumSidebarWidth, width)
-        )
+        updated.sidebarWidth = width
         try? commit(updated)
     }
 

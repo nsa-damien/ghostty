@@ -15,4 +15,8 @@ All notable changes to this project will be documented in this file.
   native macOS source-list drag and drop, folder and project reordering, project moves between
   folders, and Finder folder drops for project creation.
 - Added discoverable `make help` and `make run` commands for rebuilding and launching the debug
-  macOS app with the required Metal toolchain.
+  macOS app with the required Metal toolchain under the distinct `Ghostty Dev` name.
+- Persisted the project sidebar width across relaunches and window resizing, kept row text responsive
+  while resizing, and immediately revealed new projects by refreshing and expanding their folder.
+- Clarified that sidebar items are removed rather than deleted from disk, added folder and project
+  creation to the sidebar context menu, and kept inline renaming active across status refreshes.

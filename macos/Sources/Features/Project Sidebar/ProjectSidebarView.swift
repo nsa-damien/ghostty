@@ -2,28 +2,39 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum ProjectSidebarWidthPersistence {
+    static func updatedWidth(current: Double, measured: Double) -> Double? {
+        let rounded = measured.rounded()
+        let bounded = min(
+            ProjectSidebarWorkspaceValidator.maximumSidebarWidth,
+            max(ProjectSidebarWorkspaceValidator.minimumSidebarWidth, rounded)
+        )
+        return abs(bounded - current) >= 1 ? bounded : nil
+    }
+}
+
 struct ProjectSidebarView: View {
     @ObservedObject var controller: ProjectSidebarController
 
     var body: some View {
-        HSplitView {
-            sidebar
-                .frame(
-                    minWidth: ProjectSidebarWorkspaceValidator.minimumSidebarWidth,
-                    idealWidth: controller.workspace.sidebarWidth,
-                    maxWidth: ProjectSidebarWorkspaceValidator.maximumSidebarWidth
-                )
-            detail.frame(minWidth: 420)
-        }
+        ProjectSidebarSplitView(controller: controller)
         .frame(minWidth: 760, minHeight: 480)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button("New Terminal", action: controller.performNewTerminal)
-                        .keyboardShortcut("t", modifiers: [.command])
-                    Button("New Project") { controller.createProjectFromFolderPicker() }
-                    Button("New Folder") {
-                        controller.performSidebarMutation { _ = try controller.createGroup() }
+                    ForEach(ProjectSidebarToolbarMenu.commands, id: \.self) { command in
+                        switch command {
+                        case .addProject:
+                            Button(command.title ?? "Add Project") {
+                                controller.createProjectFromFolderPicker()
+                            }
+                        case .addFolder:
+                            Button(command.title ?? "Add Folder") {
+                                controller.performSidebarMutation { _ = try controller.createGroup() }
+                            }
+                        default:
+                            EmptyView()
+                        }
                     }
                 } label: {
                     Label("Add", systemImage: "plus")
@@ -38,9 +49,169 @@ struct ProjectSidebarView: View {
             }
         }
     }
+}
+
+enum ProjectSidebarToolbarMenu {
+    static let commands: [ProjectSidebarMenuCommand] = [.addProject, .addFolder]
+}
+
+enum ProjectSidebarHostingUpdate {
+    static func shouldReplaceController(current: AnyObject, next: AnyObject) -> Bool {
+        current !== next
+    }
+}
+
+struct ProjectSidebarSplitView: NSViewRepresentable {
+    let controller: ProjectSidebarController
+
+    func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
+
+    func makeNSView(context: Context) -> ProjectSidebarNativeSplitView {
+        context.coordinator.makeSplitView()
+    }
+
+    func updateNSView(_ splitView: ProjectSidebarNativeSplitView, context: Context) {
+        context.coordinator.update(controller: controller)
+    }
+
+    final class Coordinator: NSObject {
+        private var controller: ProjectSidebarController
+        private var splitView: ProjectSidebarNativeSplitView?
+        private var sidebarHost: NSHostingView<ProjectSidebarSidebarContent>?
+        private var detailHost: NSHostingView<ProjectSidebarDetailContent>?
+        private let widthCoordinator = ProjectSidebarSplitWidthCoordinator()
+
+        init(controller: ProjectSidebarController) {
+            self.controller = controller
+        }
+
+        func makeSplitView() -> ProjectSidebarNativeSplitView {
+            let splitView = ProjectSidebarNativeSplitView()
+            splitView.isVertical = true
+            splitView.dividerStyle = .thin
+            splitView.delegate = widthCoordinator
+            splitView.sidebarWidthDidChangeByUser = { [weak self] width in
+                self?.controller.setSidebarWidth(width)
+            }
+
+            let sidebarHost = NSHostingView(rootView: ProjectSidebarSidebarContent(controller: controller))
+            let detailHost = NSHostingView(rootView: ProjectSidebarDetailContent(controller: controller))
+            splitView.addArrangedSubview(sidebarHost)
+            splitView.addArrangedSubview(detailHost)
+            splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
+            splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+
+            self.splitView = splitView
+            self.sidebarHost = sidebarHost
+            self.detailHost = detailHost
+
+            DispatchQueue.main.async { [weak self, weak splitView] in
+                guard let self, let splitView else { return }
+                splitView.restoreInitialSidebarWidth(controller.workspace.sidebarWidth)
+            }
+            return splitView
+        }
+
+        func update(controller: ProjectSidebarController) {
+            guard ProjectSidebarHostingUpdate.shouldReplaceController(
+                current: self.controller,
+                next: controller
+            ) else { return }
+            self.controller = controller
+            sidebarHost?.rootView = ProjectSidebarSidebarContent(controller: controller)
+            detailHost?.rootView = ProjectSidebarDetailContent(controller: controller)
+        }
+
+    }
+}
+
+final class ProjectSidebarSplitWidthCoordinator: NSObject, NSSplitViewDelegate {
+    func splitView(
+        _ splitView: NSSplitView,
+        constrainMinCoordinate proposedMinimumPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        ProjectSidebarWorkspaceValidator.minimumSidebarWidth
+    }
+
+    func splitView(
+        _ splitView: NSSplitView,
+        constrainMaxCoordinate proposedMaximumPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        min(
+            ProjectSidebarWorkspaceValidator.maximumSidebarWidth,
+            splitView.bounds.width - 420 - splitView.dividerThickness
+        )
+    }
+}
+
+final class ProjectSidebarNativeSplitView: NSSplitView {
+    private(set) var shouldReportSidebarWidthChanges = false
+    private(set) var preferredSidebarWidth: Double?
+    var sidebarWidthDidChangeByUser: ((Double) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let draggedDivider = subviews.first.map { sidebar in
+            NSRect(
+                x: sidebar.frame.maxX,
+                y: bounds.minY,
+                width: dividerThickness,
+                height: bounds.height
+            ).insetBy(dx: -3, dy: 0).contains(point)
+        } ?? false
+
+        super.mouseDown(with: event)
+        if draggedDivider { commitUserSidebarWidth() }
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        guard shouldReportSidebarWidthChanges, let preferredSidebarWidth else { return }
+        setPosition(preferredSidebarWidth, ofDividerAt: 0)
+    }
+
+    func applySidebarWidth(_ width: Double) {
+        guard subviews.count >= 2 else { return }
+        let bounded = min(
+            ProjectSidebarWorkspaceValidator.maximumSidebarWidth,
+            max(ProjectSidebarWorkspaceValidator.minimumSidebarWidth, width)
+        )
+        setPosition(bounded, ofDividerAt: 0)
+        layoutSubtreeIfNeeded()
+    }
+
+    func rememberSidebarWidth(_ width: Double) {
+        preferredSidebarWidth = min(
+            ProjectSidebarWorkspaceValidator.maximumSidebarWidth,
+            max(ProjectSidebarWorkspaceValidator.minimumSidebarWidth, width.rounded())
+        )
+    }
+
+    func commitUserSidebarWidth() {
+        guard shouldReportSidebarWidthChanges, let sidebar = subviews.first else { return }
+        rememberSidebarWidth(sidebar.frame.width)
+        guard let preferredSidebarWidth else { return }
+        sidebarWidthDidChangeByUser?(preferredSidebarWidth)
+    }
+
+    func completeInitialWidthRestore() {
+        shouldReportSidebarWidthChanges = true
+    }
+
+    func restoreInitialSidebarWidth(_ width: Double) {
+        rememberSidebarWidth(width)
+        applySidebarWidth(width)
+        completeInitialWidthRestore()
+    }
+}
+
+struct ProjectSidebarSidebarContent: View {
+    @ObservedObject var controller: ProjectSidebarController
 
     @ViewBuilder
-    private var sidebar: some View {
+    var body: some View {
         if controller.workspace.sidebarVisible {
             ZStack {
                 ProjectSidebarOutlineView(controller: controller)
@@ -91,9 +262,13 @@ struct ProjectSidebarView: View {
         .frame(maxWidth: 360)
         .onDrop(of: [.fileURL], delegate: ProjectSidebarEmptyStateDropDelegate(controller: controller))
     }
+}
+
+struct ProjectSidebarDetailContent: View {
+    @ObservedObject var controller: ProjectSidebarController
 
     @ViewBuilder
-    private var detail: some View {
+    var body: some View {
         if let entryID = controller.selectedEntryID,
            let runtime = controller.runtime(for: entryID) {
             TerminalView(

@@ -12,7 +12,7 @@ final class ProjectSidebarWindowController: NSWindowController, NSWindowDelegate
             backing: .buffered,
             defer: false
         )
-        window.title = "Ghostty"
+        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Ghostty"
         window.isRestorable = false
         window.tabbingMode = .disallowed
         super.init(window: window)

@@ -157,6 +157,18 @@ struct ProjectSidebarProjectLocation: Equatable {
 }
 
 extension ProjectSidebarWorkspace {
+    @discardableResult
+    mutating func appendProject(_ project: ProjectSidebarProject, toGroup groupID: UUID?) -> Bool {
+        if let groupID {
+            guard let groupIndex = groups.firstIndex(where: { $0.id == groupID }) else { return false }
+            groups[groupIndex].projects.append(project)
+            groups[groupIndex].isExpanded = true
+        } else {
+            ungroupedProjects.append(project)
+        }
+        return true
+    }
+
     func location(ofProject projectID: UUID) -> ProjectSidebarProjectLocation? {
         for (groupIndex, group) in groups.enumerated() {
             if let projectIndex = group.projects.firstIndex(where: { $0.id == projectID }) {

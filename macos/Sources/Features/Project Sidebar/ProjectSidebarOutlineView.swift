@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 enum ProjectSidebarPasteboard {
@@ -15,6 +16,85 @@ enum ProjectSidebarPasteboard {
         case .folderURL(let url): item.setString(url.absoluteString, forType: .fileURL)
         }
         return item
+    }
+}
+
+enum ProjectSidebarMenuCommand: Hashable {
+    case addFolder
+    case addProject
+    case newTerminal
+    case rename
+    case replaceBaseFolder
+    case moveOutOfFolder
+    case retry
+    case changeFolder
+    case removeFolder
+    case removeProject
+    case removeTerminal
+    case separator
+
+    var title: String? {
+        switch self {
+        case .addFolder: "Add Folder"
+        case .addProject: "Add Project"
+        case .newTerminal: "New Terminal"
+        case .rename: "Rename"
+        case .replaceBaseFolder: "Replace Base Folder"
+        case .moveOutOfFolder: "Move Out of Folder"
+        case .retry: "Retry"
+        case .changeFolder: "Change Folder"
+        case .removeFolder: "Remove Folder"
+        case .removeProject: "Remove Project"
+        case .removeTerminal: "Remove Terminal"
+        case .separator: nil
+        }
+    }
+}
+
+enum ProjectSidebarContextMenuTarget: Equatable {
+    case background
+    case folder
+    case project(isGrouped: Bool)
+    case terminal(canRetry: Bool)
+}
+
+enum ProjectSidebarContextMenu {
+    static func commands(for target: ProjectSidebarContextMenuTarget) -> [ProjectSidebarMenuCommand] {
+        switch target {
+        case .background:
+            [.addFolder, .addProject]
+        case .folder:
+            [.addProject, .rename, .separator, .removeFolder]
+        case .project(let isGrouped):
+            [.newTerminal, .rename, .replaceBaseFolder]
+                + (isGrouped ? [.moveOutOfFolder] : [])
+                + [.separator, .removeProject]
+        case .terminal(let canRetry):
+            [.rename]
+                + (canRetry ? [.retry] : [])
+                + [.changeFolder, .separator, .removeTerminal]
+        }
+    }
+}
+
+enum ProjectSidebarWorkspaceTree {
+    static func isEqual(_ lhs: ProjectSidebarWorkspace, _ rhs: ProjectSidebarWorkspace) -> Bool {
+        lhs.groups == rhs.groups && lhs.ungroupedProjects == rhs.ungroupedProjects
+    }
+}
+
+final class ProjectSidebarWorkspaceChangeObserver {
+    private var cancellable: AnyCancellable?
+
+    init(
+        publisher: AnyPublisher<ProjectSidebarWorkspace, Never>,
+        onChange: @escaping (ProjectSidebarWorkspace) -> Void
+    ) {
+        cancellable = publisher
+            .removeDuplicates(by: ProjectSidebarWorkspaceTree.isEqual)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink(receiveValue: onChange)
     }
 }
 
@@ -42,10 +122,12 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
         private var editingNode: Node?
         private var renameError: String?
         private var menuNode: Node?
+        private var workspaceObserver: ProjectSidebarWorkspaceChangeObserver?
 
         init(controller: ProjectSidebarController) {
             self.controller = controller
             super.init()
+            observeWorkspaceChanges()
         }
 
         func makeScrollView() -> NSScrollView {
@@ -61,6 +143,8 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             outlineView.rowSizeStyle = .default
             outlineView.indentationPerLevel = 16
             outlineView.autoresizesOutlineColumn = true
+            outlineView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+            outlineView.autoresizingMask = [.width]
             outlineView.allowsEmptySelection = true
             outlineView.registerForDraggedTypes([
                 ProjectSidebarPasteboard.folderType,
@@ -76,7 +160,7 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             outlineView.renameAction = { [weak self] in self?.beginRenameForSelectedRow() }
             outlineView.deleteAction = { [weak self] in self?.deleteSelectedRow() }
 
-            let scrollView = NSScrollView()
+            let scrollView = ProjectSidebarScrollView()
             scrollView.documentView = outlineView
             scrollView.hasVerticalScroller = true
             scrollView.autohidesScrollers = true
@@ -88,13 +172,30 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
         }
 
         func update(controller: ProjectSidebarController) {
-            self.controller = controller
-            guard lastWorkspace != controller.workspace else {
+            if self.controller !== controller {
+                self.controller = controller
+                observeWorkspaceChanges()
+            }
+            if let lastWorkspace,
+               ProjectSidebarWorkspaceTree.isEqual(lastWorkspace, controller.workspace) {
+                self.lastWorkspace = controller.workspace
                 reloadVisibleTerminalRows()
                 restoreSelection()
                 return
             }
             rebuild()
+        }
+
+        private func observeWorkspaceChanges() {
+            workspaceObserver = ProjectSidebarWorkspaceChangeObserver(
+                publisher: controller.$workspace.eraseToAnyPublisher()
+            ) { [weak self] workspace in
+                guard let self,
+                      lastWorkspace.map({ !ProjectSidebarWorkspaceTree.isEqual($0, workspace) }) ?? true else {
+                    return
+                }
+                rebuild()
+            }
         }
 
         private func rebuild() {
@@ -439,6 +540,10 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             return true
         }
 
+        func outlineView(_ outlineView: NSOutlineView, shouldEdit tableColumn: NSTableColumn?, item: Any) -> Bool {
+            (item as? Node)?.isRenameable == true
+        }
+
         func outlineView(_ outlineView: NSOutlineView, shouldShowOutlineCellForItem item: Any) -> Bool {
             guard let node = item as? Node else { return true }
             if case .section = node.kind { return false }
@@ -516,10 +621,15 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             editingNode = node
             renameError = nil
             cell.showValidationError(nil)
-            cell.titleField.isEditable = true
-            cell.titleField.isSelectable = true
-            outlineView.window?.makeFirstResponder(cell.titleField)
-            cell.titleField.selectText(nil)
+            cell.prepareForInlineRename()
+            DispatchQueue.main.async { [weak self, weak cell] in
+                guard let self, let cell, self.editingNode?.id == node.id else { return }
+                self.outlineView.editColumn(0, row: row, with: nil, select: true)
+                if self.outlineView.window?.firstResponder !== cell.titleField.currentEditor() {
+                    self.outlineView.window?.makeFirstResponder(cell.titleField)
+                    cell.titleField.selectText(nil)
+                }
+            }
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
@@ -568,40 +678,49 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             return row >= 0 ? row : nil
         }
 
-        private func menu(for node: Node) -> NSMenu? {
+        private func menu(for node: Node?) -> NSMenu? {
             menuNode = node
-            let wasRestoring = restoringState
-            restoringState = true
-            if let row = row(for: node) {
-                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            }
-            restoringState = wasRestoring
-            let menu = NSMenu()
-            switch node.kind {
-            case .group:
-                menu.addItem(item("Add Project", #selector(addProjectToFolder)))
-                menu.addItem(item("Rename", #selector(renameMenuItem)))
-                menu.addItem(.separator())
-                menu.addItem(item("Delete Folder", #selector(deleteMenuItem)))
-            case .project(_, let groupID):
-                menu.addItem(item("New Terminal", #selector(addTerminal)))
-                menu.addItem(item("Rename", #selector(renameMenuItem)))
-                menu.addItem(item("Replace Base Folder", #selector(replaceProjectFolder)))
-                if groupID != nil { menu.addItem(item("Move Out of Folder", #selector(moveProjectOut))) }
-                menu.addItem(.separator())
-                menu.addItem(item("Delete Project", #selector(deleteMenuItem)))
-            case .terminal(let terminal, _):
-                menu.addItem(item("Rename", #selector(renameMenuItem)))
-                if controller.launchFailures.contains(terminal.id) {
-                    menu.addItem(item("Retry", #selector(retryTerminal)))
+            if let node {
+                let wasRestoring = restoringState
+                restoringState = true
+                if let row = row(for: node) {
+                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
                 }
-                menu.addItem(item("Change Folder", #selector(replaceTerminalFolder)))
-                menu.addItem(.separator())
-                menu.addItem(item("Delete Terminal", #selector(deleteMenuItem)))
-            case .section:
-                return nil
+                restoringState = wasRestoring
+            }
+
+            let target: ProjectSidebarContextMenuTarget
+            switch node?.kind {
+            case .group: target = .folder
+            case .project(_, let groupID): target = .project(isGrouped: groupID != nil)
+            case .terminal(let terminal, _): target = .terminal(canRetry: controller.launchFailures.contains(terminal.id))
+            case .section, nil: target = .background
+            }
+
+            let menu = NSMenu()
+            for command in ProjectSidebarContextMenu.commands(for: target) {
+                if command == .separator {
+                    menu.addItem(.separator())
+                } else if let title = command.title {
+                    menu.addItem(item(title, selector(for: command)))
+                }
             }
             return menu
+        }
+
+        private func selector(for command: ProjectSidebarMenuCommand) -> Selector {
+            switch command {
+            case .addFolder: #selector(addFolder)
+            case .addProject: #selector(addProject)
+            case .newTerminal: #selector(addTerminal)
+            case .rename: #selector(renameMenuItem)
+            case .replaceBaseFolder: #selector(replaceProjectFolder)
+            case .moveOutOfFolder: #selector(moveProjectOut)
+            case .retry: #selector(retryTerminal)
+            case .changeFolder: #selector(replaceTerminalFolder)
+            case .removeFolder, .removeProject, .removeTerminal: #selector(removeMenuItem)
+            case .separator: fatalError("Separators do not have actions")
+            }
         }
 
         private func item(_ title: String, _ action: Selector) -> NSMenuItem {
@@ -610,9 +729,16 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             return item
         }
 
-        @objc private func addProjectToFolder() {
-            guard case .group(let group)? = menuNode?.kind else { return }
-            controller.createProjectFromFolderPicker(inGroup: group.id)
+        @objc private func addFolder() {
+            controller.performSidebarMutation { _ = try controller.createGroup() }
+        }
+
+        @objc private func addProject() {
+            if case .group(let group)? = menuNode?.kind {
+                controller.createProjectFromFolderPicker(inGroup: group.id)
+            } else {
+                controller.createProjectFromFolderPicker()
+            }
         }
 
         @objc private func addTerminal() {
@@ -625,14 +751,14 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             beginRename(row: outlineView.row(forItem: menuNode))
         }
 
-        @objc private func deleteMenuItem() { delete(node: menuNode) }
+        @objc private func removeMenuItem() { remove(node: menuNode) }
 
         private func deleteSelectedRow() {
             guard outlineView.selectedRow >= 0 else { return }
-            delete(node: outlineView.item(atRow: outlineView.selectedRow) as? Node)
+            remove(node: outlineView.item(atRow: outlineView.selectedRow) as? Node)
         }
 
-        private func delete(node: Node?) {
+        private func remove(node: Node?) {
             guard let node else { return }
             let previousWorkspace = controller.workspace
             switch node.kind {
@@ -672,13 +798,13 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
 }
 
 private final class NativeOutlineView: NSOutlineView {
-    var menuProvider: ((Node) -> NSMenu?)?
+    var menuProvider: ((Node?) -> NSMenu?)?
     var renameAction: (() -> Void)?
     var deleteAction: (() -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
-        guard row >= 0, let node = item(atRow: row) as? Node else { return nil }
+        let node = row >= 0 ? item(atRow: row) as? Node : nil
         return menuProvider?(node)
     }
 
@@ -694,7 +820,21 @@ private final class NativeOutlineView: NSOutlineView {
     }
 }
 
-private final class SidebarCell: NSTableCellView {
+final class ProjectSidebarScrollView: NSScrollView {
+    override func layout() {
+        super.layout()
+        guard let outlineView = documentView as? NSOutlineView else { return }
+        let width = contentSize.width
+        if let column = outlineView.tableColumns.first, abs(column.width - width) >= 0.5 {
+            column.width = width
+        }
+        if abs(outlineView.frame.width - width) >= 0.5 {
+            outlineView.setFrameSize(NSSize(width: width, height: max(outlineView.frame.height, contentSize.height)))
+        }
+    }
+}
+
+final class SidebarCell: NSTableCellView {
     let titleField = NSTextField(labelWithString: "")
     private let subtitleField = NSTextField(labelWithString: "")
     private let validationField = NSTextField(labelWithString: "")
@@ -742,7 +882,7 @@ private final class SidebarCell: NSTableCellView {
 
     required init?(coder: NSCoder) { nil }
 
-    func configure(node: Node, controller: ProjectSidebarController) {
+    fileprivate func configure(node: Node, controller: ProjectSidebarController) {
         titleField.isEditable = false
         titleField.isSelectable = false
         subtitleField.isHidden = true
@@ -783,6 +923,11 @@ private final class SidebarCell: NSTableCellView {
     func showValidationError(_ message: String?) {
         validationField.stringValue = message ?? ""
         validationField.isHidden = message == nil
+    }
+
+    func prepareForInlineRename() {
+        titleField.isEditable = true
+        titleField.isSelectable = true
     }
 
     private func standardTitle() {

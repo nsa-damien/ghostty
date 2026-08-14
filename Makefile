@@ -1,4 +1,5 @@
-MACOS_APP := $(CURDIR)/macos/build/Debug/Ghostty.app
+MACOS_APP_NAME := Ghostty Dev
+MACOS_APP := $(CURDIR)/macos/build/Debug/$(MACOS_APP_NAME).app
 MACOS_BUILD_ENV := env -i HOME="$(HOME)" PATH=/usr/bin:/bin:/usr/sbin:/sbin TOOLCHAINS=Metal
 
 help:
@@ -15,6 +16,8 @@ run:
 		-scheme Ghostty \
 		-configuration Debug \
 		SYMROOT="$(CURDIR)/macos/build" \
+		GHOSTTY_PRODUCT_NAME="$(MACOS_APP_NAME)" \
+		GHOSTTY_DISPLAY_NAME="$(MACOS_APP_NAME)" \
 		build
 	open -n "$(MACOS_APP)"
 .PHONY: run

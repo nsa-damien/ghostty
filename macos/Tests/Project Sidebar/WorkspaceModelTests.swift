@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import Ghostty
 
@@ -160,6 +161,17 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertTrue(workspace.moveProject(exodus.id, toGroup: archiveID, before: nil))
         XCTAssertEqual(workspace.groups[0].projects.map(\.id), [dataWrangler.id, relay.id])
         XCTAssertEqual(workspace.groups[1].projects.map(\.id), [exodus.id])
+    }
+
+    func testAppendingProjectExpandsCollapsedTargetFolder() {
+        let group = ProjectSidebarGroup(name: "Collapsed", isExpanded: false)
+        let project = ProjectSidebarProject(name: "Ghostty", baseFolder: "/tmp")
+        var workspace = ProjectSidebarWorkspace(groups: [group])
+
+        XCTAssertTrue(workspace.appendProject(project, toGroup: group.id))
+
+        XCTAssertEqual(workspace.groups[0].projects, [project])
+        XCTAssertTrue(workspace.groups[0].isExpanded)
     }
 
     func testFoldersCanReorder() {
@@ -326,5 +338,228 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
                 in: workspace
             )
         )
+    }
+
+    func testNativeOutlineObservesWorkspaceChangesAfterInitialState() {
+        let initial = ProjectSidebarWorkspace.empty
+        let relay = ProjectSidebarProject(name: "Relay", baseFolder: "/tmp/relay")
+        let updated = ProjectSidebarWorkspace(ungroupedProjects: [relay])
+        let subject = CurrentValueSubject<ProjectSidebarWorkspace, Never>(initial)
+        var observed: [ProjectSidebarWorkspace] = []
+        let changed = expectation(description: "structural workspace change")
+
+        let observer = ProjectSidebarWorkspaceChangeObserver(
+            publisher: subject.eraseToAnyPublisher()
+        ) {
+            observed.append($0)
+            changed.fulfill()
+        }
+        subject.send(ProjectSidebarWorkspace(sidebarWidth: 320))
+        subject.send(updated)
+
+        wait(for: [changed], timeout: 1)
+        XCTAssertEqual(observed, [updated])
+        withExtendedLifetime(observer) {}
+    }
+
+    func testNativeOutlineWaitsUntilPublishedWorkspaceIsInstalled() {
+        let initial = ProjectSidebarWorkspace.empty
+        let updated = ProjectSidebarWorkspace(
+            ungroupedProjects: [ProjectSidebarProject(name: "Relay", baseFolder: "/tmp/relay")]
+        )
+        let subject = CurrentValueSubject<ProjectSidebarWorkspace, Never>(initial)
+        var installed = initial
+        let changed = expectation(description: "installed workspace is visible")
+
+        let observer = ProjectSidebarWorkspaceChangeObserver(
+            publisher: subject.eraseToAnyPublisher()
+        ) { published in
+            XCTAssertEqual(installed, published)
+            changed.fulfill()
+        }
+        subject.send(updated)
+        installed = updated
+
+        wait(for: [changed], timeout: 1)
+        withExtendedLifetime(observer) {}
+    }
+
+    func testOutlineTreeComparisonIgnoresWidthButDetectsAddedProject() {
+        let initial = ProjectSidebarWorkspace.empty
+        let widthOnly = ProjectSidebarWorkspace(sidebarWidth: 400)
+        let withProject = ProjectSidebarWorkspace(
+            ungroupedProjects: [ProjectSidebarProject(name: "Relay", baseFolder: "/tmp/relay")]
+        )
+
+        XCTAssertTrue(ProjectSidebarWorkspaceTree.isEqual(initial, widthOnly))
+        XCTAssertFalse(ProjectSidebarWorkspaceTree.isEqual(initial, withProject))
+    }
+
+    func testSidebarWidthPersistenceBoundsAndDeduplicatesMeasurements() {
+        XCTAssertNil(ProjectSidebarWidthPersistence.updatedWidth(current: 240, measured: 240.4))
+        XCTAssertEqual(ProjectSidebarWidthPersistence.updatedWidth(current: 240, measured: 319.6), 320)
+        XCTAssertEqual(ProjectSidebarWidthPersistence.updatedWidth(current: 240, measured: 100), 160)
+        XCTAssertEqual(ProjectSidebarWidthPersistence.updatedWidth(current: 240, measured: 700), 560)
+    }
+
+    func testSidebarContextMenusUseRemoveLanguageAndOfferBackgroundCreation() {
+        XCTAssertEqual(
+            ProjectSidebarContextMenu.commands(for: .background),
+            [.addFolder, .addProject]
+        )
+        XCTAssertEqual(
+            ProjectSidebarContextMenu.commands(for: .folder),
+            [.addProject, .rename, .separator, .removeFolder]
+        )
+        XCTAssertEqual(
+            ProjectSidebarContextMenu.commands(for: .project(isGrouped: false)),
+            [.newTerminal, .rename, .replaceBaseFolder, .separator, .removeProject]
+        )
+        XCTAssertEqual(
+            ProjectSidebarContextMenu.commands(for: .terminal(canRetry: true)),
+            [.rename, .retry, .changeFolder, .separator, .removeTerminal]
+        )
+        XCTAssertEqual(ProjectSidebarMenuCommand.removeFolder.title, "Remove Folder")
+        XCTAssertEqual(ProjectSidebarMenuCommand.removeProject.title, "Remove Project")
+        XCTAssertEqual(ProjectSidebarMenuCommand.removeTerminal.title, "Remove Terminal")
+        XCTAssertEqual(ProjectSidebarToolbarMenu.commands, [.addProject, .addFolder])
+    }
+
+    func testNativeSplitRestoresPersistedSidebarWidth() {
+        let splitView = ProjectSidebarNativeSplitView(
+            frame: NSRect(x: 0, y: 0, width: 1100, height: 720)
+        )
+        splitView.isVertical = true
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.layoutSubtreeIfNeeded()
+
+        splitView.applySidebarWidth(318)
+
+        XCTAssertEqual(splitView.subviews[0].frame.width, 318, accuracy: 1)
+    }
+
+    func testNativeSplitDoesNotReportWidthBeforeInitialRestoreCompletes() {
+        let splitView = ProjectSidebarNativeSplitView()
+
+        XCTAssertFalse(splitView.shouldReportSidebarWidthChanges)
+        splitView.completeInitialWidthRestore()
+        XCTAssertTrue(splitView.shouldReportSidebarWidthChanges)
+    }
+
+    func testSidebarScrollViewExpandsOutlineAndColumnWithViewport() {
+        let scrollView = ProjectSidebarScrollView(
+            frame: NSRect(x: 0, y: 0, width: 200, height: 400)
+        )
+        let outlineView = NSOutlineView()
+        let column = NSTableColumn(identifier: .init("Sidebar"))
+        outlineView.addTableColumn(column)
+        scrollView.documentView = outlineView
+        scrollView.layoutSubtreeIfNeeded()
+
+        scrollView.setFrameSize(NSSize(width: 420, height: 400))
+        scrollView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(outlineView.frame.width, scrollView.contentSize.width, accuracy: 1)
+        XCTAssertEqual(column.width, scrollView.contentSize.width, accuracy: 1)
+    }
+
+    func testSidebarHostingUpdatePreservesViewsForSameController() {
+        let controller = NSObject()
+
+        XCTAssertFalse(
+            ProjectSidebarHostingUpdate.shouldReplaceController(
+                current: controller,
+                next: controller
+            )
+        )
+        XCTAssertTrue(
+            ProjectSidebarHostingUpdate.shouldReplaceController(
+                current: controller,
+                next: NSObject()
+            )
+        )
+    }
+
+    func testPersistedSidebarWidthAppliesToFreshNativeSplit() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = ProjectSidebarStore(directoryURL: directory)
+        try store.save(ProjectSidebarWorkspace(sidebarWidth: 347))
+        let splitView = ProjectSidebarNativeSplitView(
+            frame: NSRect(x: 0, y: 0, width: 1100, height: 720)
+        )
+        splitView.isVertical = true
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.layoutSubtreeIfNeeded()
+
+        splitView.applySidebarWidth(store.load().workspace.sidebarWidth)
+
+        XCTAssertEqual(splitView.subviews[0].frame.width, 347, accuracy: 1)
+    }
+
+    func testSplitWidthLifecycleDoesNotOverwriteRestoreAndPersistsUserResize() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = ProjectSidebarStore(directoryURL: directory)
+        try store.save(ProjectSidebarWorkspace(sidebarWidth: 347))
+        let splitView = ProjectSidebarNativeSplitView(
+            frame: NSRect(x: 0, y: 0, width: 1100, height: 720)
+        )
+        splitView.isVertical = true
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.layoutSubtreeIfNeeded()
+        let widthCoordinator = ProjectSidebarSplitWidthCoordinator()
+        splitView.sidebarWidthDidChangeByUser = { width in
+            var workspace = store.load().workspace
+            workspace.sidebarWidth = width
+            try? store.save(workspace)
+        }
+        splitView.delegate = widthCoordinator
+
+        splitView.commitUserSidebarWidth()
+        XCTAssertEqual(store.load().workspace.sidebarWidth, 347)
+
+        splitView.restoreInitialSidebarWidth(store.load().workspace.sidebarWidth)
+        XCTAssertEqual(splitView.subviews[0].frame.width, 347, accuracy: 1)
+        XCTAssertEqual(store.load().workspace.sidebarWidth, 347)
+
+        splitView.setFrameSize(NSSize(width: 700, height: 720))
+        XCTAssertEqual(store.load().workspace.sidebarWidth, 347)
+
+        splitView.setFrameSize(NSSize(width: 1100, height: 720))
+        XCTAssertEqual(splitView.subviews[0].frame.width, 347, accuracy: 1)
+
+        splitView.setFrameSize(NSSize(width: 700, height: 720))
+        splitView.setPosition(250, ofDividerAt: 0)
+        splitView.commitUserSidebarWidth()
+        XCTAssertEqual(store.load().workspace.sidebarWidth, 250)
+
+        splitView.setFrameSize(NSSize(width: 1100, height: 720))
+        XCTAssertEqual(splitView.subviews[0].frame.width, 250, accuracy: 1)
+
+        splitView.setPosition(312, ofDividerAt: 0)
+        splitView.commitUserSidebarWidth()
+        XCTAssertEqual(store.load().workspace.sidebarWidth, 312)
+
+        let relaunchedSplit = ProjectSidebarNativeSplitView(
+            frame: NSRect(x: 0, y: 0, width: 1100, height: 720)
+        )
+        relaunchedSplit.isVertical = true
+        relaunchedSplit.addArrangedSubview(NSView())
+        relaunchedSplit.addArrangedSubview(NSView())
+        relaunchedSplit.layoutSubtreeIfNeeded()
+        relaunchedSplit.restoreInitialSidebarWidth(store.load().workspace.sidebarWidth)
+        XCTAssertEqual(relaunchedSplit.subviews[0].frame.width, 312, accuracy: 1)
+    }
+
+    func testSidebarCellSupportsNativeInlineRenaming() {
+        let cell = SidebarCell(identifier: .init("RenameCell"))
+
+        cell.prepareForInlineRename()
+
+        XCTAssertTrue(cell.titleField.isEditable)
+        XCTAssertTrue(cell.titleField.isSelectable)
+        XCTAssertTrue(cell.titleField.acceptsFirstResponder)
     }
 }

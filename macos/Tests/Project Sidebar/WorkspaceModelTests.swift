@@ -579,17 +579,30 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertTrue(cell.titleField.acceptsFirstResponder)
     }
 
-    func testSidebarCellConstrainsLongTitleInsideSelectionHighlight() {
-        let cell = SidebarCell(identifier: .init("OverflowCell"))
-        cell.frame = NSRect(x: 0, y: 0, width: 280, height: 28)
-        cell.titleField.stringValue = "nsa-data-wrangler-v2-with-a-very-long-name"
+    func testSidebarCellKeepsTitlesLeadingAlignedAndInsideSelectionHighlight() throws {
+        let shortTitleCell = SidebarCell(identifier: .init("ShortTitleCell"))
+        shortTitleCell.frame = NSRect(x: 0, y: 0, width: 280, height: 28)
+        shortTitleCell.titleField.stringValue = "Relay"
 
-        cell.layoutSubtreeIfNeeded()
-
-        XCTAssertLessThanOrEqual(
-            cell.titleField.frame.maxX,
-            cell.bounds.maxX - 4 + 0.5
+        shortTitleCell.layoutSubtreeIfNeeded()
+        let shortTitleFrame = shortTitleCell.convert(
+            shortTitleCell.titleField.alignmentRect(forFrame: shortTitleCell.titleField.frame),
+            from: try XCTUnwrap(shortTitleCell.titleField.superview)
         )
+
+        XCTAssertEqual(shortTitleFrame.minX, 24, accuracy: 0.5)
+
+        let longTitleCell = SidebarCell(identifier: .init("LongTitleCell"))
+        longTitleCell.frame = NSRect(x: 0, y: 0, width: 280, height: 28)
+        longTitleCell.titleField.stringValue = "nsa-data-wrangler-v2-with-a-very-long-name"
+
+        longTitleCell.layoutSubtreeIfNeeded()
+        let longTitleFrame = longTitleCell.convert(
+            longTitleCell.titleField.alignmentRect(forFrame: longTitleCell.titleField.frame),
+            from: try XCTUnwrap(longTitleCell.titleField.superview)
+        )
+
+        XCTAssertEqual(longTitleFrame.maxX, longTitleCell.bounds.maxX - 4, accuracy: 0.5)
     }
 
     func testQuitPolicyWarnsOnlyForEntriesWithForegroundProcesses() {

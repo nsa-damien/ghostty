@@ -855,7 +855,7 @@ final class SidebarCell: NSTableCellView {
         let labels = NSStackView(views: [titleField, validationField])
         labels.translatesAutoresizingMaskIntoConstraints = false
         labels.orientation = .vertical
-        labels.alignment = .width
+        labels.alignment = .leading
         labels.spacing = 0
         labels.setHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -871,6 +871,8 @@ final class SidebarCell: NSTableCellView {
             labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
             labels.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             labels.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleField.widthAnchor.constraint(equalTo: labels.widthAnchor),
+            validationField.widthAnchor.constraint(equalTo: labels.widthAnchor),
         ])
     }
 

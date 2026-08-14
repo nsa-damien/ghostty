@@ -21,7 +21,8 @@ All notable changes to this project will be documented in this file.
   while resizing, and immediately revealed new projects by refreshing and expanding their folder.
 - Clarified that sidebar items are removed rather than deleted from disk, added folder and project
   creation to the sidebar context menu, and kept inline renaming active across status refreshes.
-- Kept the project sidebar permanently visible, constrained long row titles within the native
-  selection highlight, and removed shell-generated path subtitles from terminal rows.
+- Kept the project sidebar permanently visible, kept row titles leading-aligned and constrained
+  within the native selection highlight, and removed shell-generated path subtitles from terminal
+  rows.
 - Limited quit confirmation to sidebar terminals with active foreground processes, allowing idle
   shells at their prompts to quit immediately.

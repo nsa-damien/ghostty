@@ -100,6 +100,7 @@ struct ProjectSidebarSplitView: NSViewRepresentable {
             splitView.addArrangedSubview(detailHost)
             splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
             splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
+            splitView.setSidebarVisible(controller.workspace.sidebarVisible)
 
             self.splitView = splitView
             self.sidebarHost = sidebarHost
@@ -113,6 +114,7 @@ struct ProjectSidebarSplitView: NSViewRepresentable {
         }
 
         func update(controller: ProjectSidebarController) {
+            splitView?.setSidebarVisible(controller.workspace.sidebarVisible)
             guard ProjectSidebarHostingUpdate.shouldReplaceController(
                 current: self.controller,
                 next: controller
@@ -149,7 +151,12 @@ final class ProjectSidebarSplitWidthCoordinator: NSObject, NSSplitViewDelegate {
 final class ProjectSidebarNativeSplitView: NSSplitView {
     private(set) var shouldReportSidebarWidthChanges = false
     private(set) var preferredSidebarWidth: Double?
+    private(set) var isSidebarVisible = true
     var sidebarWidthDidChangeByUser: ((Double) -> Void)?
+
+    override var dividerThickness: CGFloat {
+        isSidebarVisible ? super.dividerThickness : 0
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
@@ -168,12 +175,24 @@ final class ProjectSidebarNativeSplitView: NSSplitView {
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
-        guard shouldReportSidebarWidthChanges, let preferredSidebarWidth else { return }
+        guard isSidebarVisible,
+              shouldReportSidebarWidthChanges,
+              let preferredSidebarWidth else { return }
         setPosition(preferredSidebarWidth, ofDividerAt: 0)
     }
 
-    func applySidebarWidth(_ width: Double) {
+    func setSidebarVisible(_ visible: Bool) {
         guard subviews.count >= 2 else { return }
+        isSidebarVisible = visible
+        subviews[0].isHidden = !visible
+        adjustSubviews()
+        if visible, let preferredSidebarWidth {
+            applySidebarWidth(preferredSidebarWidth)
+        }
+    }
+
+    func applySidebarWidth(_ width: Double) {
+        guard isSidebarVisible, subviews.count >= 2 else { return }
         let bounded = min(
             ProjectSidebarWorkspaceValidator.maximumSidebarWidth,
             max(ProjectSidebarWorkspaceValidator.minimumSidebarWidth, width)

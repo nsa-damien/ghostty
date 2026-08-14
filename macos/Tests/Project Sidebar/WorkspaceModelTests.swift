@@ -439,6 +439,28 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertEqual(splitView.subviews[0].frame.width, 318, accuracy: 1)
     }
 
+    func testNativeSplitHidesEntireSidebarAndRestoresPersistedWidth() {
+        let splitView = ProjectSidebarNativeSplitView(
+            frame: NSRect(x: 0, y: 0, width: 1100, height: 720)
+        )
+        splitView.isVertical = true
+        splitView.addArrangedSubview(NSView())
+        splitView.addArrangedSubview(NSView())
+        splitView.restoreInitialSidebarWidth(318)
+
+        splitView.setSidebarVisible(false)
+        splitView.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(splitView.subviews[0].isHidden)
+        XCTAssertEqual(splitView.subviews[1].frame.width, splitView.bounds.width, accuracy: 1)
+
+        splitView.setSidebarVisible(true)
+        splitView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(splitView.subviews[0].isHidden)
+        XCTAssertEqual(splitView.subviews[0].frame.width, 318, accuracy: 1)
+    }
+
     func testNativeSplitDoesNotReportWidthBeforeInitialRestoreCompletes() {
         let splitView = ProjectSidebarNativeSplitView()
 

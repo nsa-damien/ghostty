@@ -436,12 +436,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         try? commit(updated)
     }
 
-    func setSidebarVisible(_ visible: Bool) {
-        var updated = workspace
-        updated.sidebarVisible = visible
-        try? commit(updated)
-    }
-
     func setSidebarWidth(_ width: Double) {
         guard let width = ProjectSidebarWidthPersistence.updatedWidth(
             current: workspace.sidebarWidth,
@@ -453,11 +447,11 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     }
 
     func confirmQuit() -> NSApplication.TerminateReply {
-        let count = runtimeRegistry.runningEntryCount
+        let count = runtimeRegistry.quitConfirmationEntryCount
         guard count > 0 else { return .terminateNow }
         let alert = NSAlert()
         alert.messageText = "Quit Ghostty?"
-        alert.informativeText = "\(count) running session\(count == 1 ? "" : "s") will stop."
+        alert.informativeText = "\(count) terminal\(count == 1 ? " has" : "s have") a running process."
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning

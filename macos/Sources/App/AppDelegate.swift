@@ -411,12 +411,15 @@ class AppDelegate: NSObject,
             }
         }
 
-        // If our app says we don't need to confirm, we can exit now.
-        if projectSidebarController.runtimeRegistry.runningEntryCount > 0 {
+        // Confirm workspace surfaces first because their runtime controllers intentionally own no
+        // window and aren't part of the regular-window confirmation flow in terminate().
+        if projectSidebarController.runtimeRegistry.quitConfirmationEntryCount > 0 {
             guard projectSidebarController.confirmQuit() != .terminateCancel else {
                 return .terminateCancel
             }
         }
+        // Ghostty's app-wide check includes both workspace and regular-window surfaces. Workspace
+        // surfaces were handled above; terminate() below handles only regular window controllers.
         if !ghostty.needsConfirmQuit { return .terminateNow }
 
         return terminate()

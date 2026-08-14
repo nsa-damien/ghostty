@@ -24,6 +24,16 @@ enum ProjectSidebarEntryStatus: Equatable {
     }
 }
 
+enum ProjectSidebarQuitPolicy {
+    static func entryRequiresConfirmation(_ surfaceStates: [Bool]) -> Bool {
+        surfaceStates.contains(true)
+    }
+
+    static func entriesRequiringConfirmation(_ surfaceStatesByEntry: [[Bool]]) -> Int {
+        surfaceStatesByEntry.count(where: entryRequiresConfirmation)
+    }
+}
+
 /// A runtime owns the complete split tree for one logical sidebar entry. It is deliberately not
 /// a window controller: the workspace window is only a presentation host, while this object keeps
 /// the surfaces alive when another entry is selected or the window is hidden.
@@ -48,6 +58,12 @@ final class ProjectSidebarRuntime: NSObject {
         return controller.surfaceTree.contains(where: { !$0.processExited })
             ? .running
             : .stopped
+    }
+
+    var needsQuitConfirmation: Bool {
+        ProjectSidebarQuitPolicy.entryRequiresConfirmation(
+            controller.surfaceTree.map(\.needsConfirmQuit)
+        )
     }
 }
 
@@ -80,8 +96,8 @@ final class ProjectSidebarRuntimeRegistry: ObservableObject {
         runtimes[entryID]?.status == .running
     }
 
-    var runningEntryCount: Int {
-        runtimes.values.filter { $0.status == .running }.count
+    var quitConfirmationEntryCount: Int {
+        runtimes.values.count(where: \.needsQuitConfirmation)
     }
 
     var allSurfaceViews: [Ghostty.SurfaceView] {

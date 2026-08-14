@@ -563,13 +563,8 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             guard let node = item as? Node else { return 24 }
             switch node.kind {
-            case .terminal(let terminal, _):
+            case .terminal:
                 if node.id == editingNode?.id, renameError != nil { return 48 }
-                if let runtime = controller.runtime(for: terminal.id),
-                   let focused = runtime.controller.focusedSurface,
-                   !focused.title.isEmpty {
-                    return 38
-                }
                 return 26
             case .section: return 24
             case .group, .project:
@@ -836,7 +831,6 @@ final class ProjectSidebarScrollView: NSScrollView {
 
 final class SidebarCell: NSTableCellView {
     let titleField = NSTextField(labelWithString: "")
-    private let subtitleField = NSTextField(labelWithString: "")
     private let validationField = NSTextField(labelWithString: "")
     private let iconView = NSImageView()
 
@@ -848,20 +842,20 @@ final class SidebarCell: NSTableCellView {
         iconView.symbolConfiguration = .init(pointSize: 14, weight: .regular)
         titleField.translatesAutoresizingMaskIntoConstraints = false
         titleField.lineBreakMode = .byTruncatingTail
-        subtitleField.translatesAutoresizingMaskIntoConstraints = false
-        subtitleField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        subtitleField.textColor = .secondaryLabelColor
-        subtitleField.lineBreakMode = .byTruncatingTail
+        titleField.usesSingleLineMode = true
+        titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         validationField.translatesAutoresizingMaskIntoConstraints = false
         validationField.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         validationField.textColor = .systemRed
         validationField.lineBreakMode = .byTruncatingTail
+        validationField.usesSingleLineMode = true
+        validationField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         validationField.isHidden = true
 
-        let labels = NSStackView(views: [titleField, subtitleField, validationField])
+        let labels = NSStackView(views: [titleField, validationField])
         labels.translatesAutoresizingMaskIntoConstraints = false
         labels.orientation = .vertical
-        labels.alignment = .leading
+        labels.alignment = .width
         labels.spacing = 0
         labels.setHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -885,8 +879,6 @@ final class SidebarCell: NSTableCellView {
     fileprivate func configure(node: Node, controller: ProjectSidebarController) {
         titleField.isEditable = false
         titleField.isSelectable = false
-        subtitleField.isHidden = true
-        subtitleField.stringValue = ""
         showValidationError(nil)
 
         switch node.kind {
@@ -911,12 +903,6 @@ final class SidebarCell: NSTableCellView {
             let status = controller.entryStatus(terminal.id)
             iconView.contentTintColor = status == .running ? .systemGreen : .secondaryLabelColor
             iconView.image = NSImage(systemSymbolName: status.systemImage, accessibilityDescription: status.label)
-            if let runtime = controller.runtime(for: terminal.id),
-               let focused = runtime.controller.focusedSurface,
-               !focused.title.isEmpty {
-                subtitleField.stringValue = focused.title
-                subtitleField.isHidden = false
-            }
         }
     }
 

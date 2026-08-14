@@ -40,13 +40,6 @@ struct ProjectSidebarView: View {
                     Label("Add", systemImage: "plus")
                 }
             }
-            ToolbarItem {
-                Button {
-                    controller.setSidebarVisible(!controller.workspace.sidebarVisible)
-                } label: {
-                    Label("Toggle Sidebar", systemImage: "sidebar.left")
-                }
-            }
         }
     }
 }
@@ -100,7 +93,6 @@ struct ProjectSidebarSplitView: NSViewRepresentable {
             splitView.addArrangedSubview(detailHost)
             splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
             splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
-            splitView.setSidebarVisible(controller.workspace.sidebarVisible)
 
             self.splitView = splitView
             self.sidebarHost = sidebarHost
@@ -114,7 +106,6 @@ struct ProjectSidebarSplitView: NSViewRepresentable {
         }
 
         func update(controller: ProjectSidebarController) {
-            splitView?.setSidebarVisible(controller.workspace.sidebarVisible)
             guard ProjectSidebarHostingUpdate.shouldReplaceController(
                 current: self.controller,
                 next: controller
@@ -151,12 +142,7 @@ final class ProjectSidebarSplitWidthCoordinator: NSObject, NSSplitViewDelegate {
 final class ProjectSidebarNativeSplitView: NSSplitView {
     private(set) var shouldReportSidebarWidthChanges = false
     private(set) var preferredSidebarWidth: Double?
-    private(set) var isSidebarVisible = true
     var sidebarWidthDidChangeByUser: ((Double) -> Void)?
-
-    override var dividerThickness: CGFloat {
-        isSidebarVisible ? super.dividerThickness : 0
-    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
@@ -175,24 +161,12 @@ final class ProjectSidebarNativeSplitView: NSSplitView {
 
     override func resizeSubviews(withOldSize oldSize: NSSize) {
         super.resizeSubviews(withOldSize: oldSize)
-        guard isSidebarVisible,
-              shouldReportSidebarWidthChanges,
-              let preferredSidebarWidth else { return }
+        guard shouldReportSidebarWidthChanges, let preferredSidebarWidth else { return }
         setPosition(preferredSidebarWidth, ofDividerAt: 0)
     }
 
-    func setSidebarVisible(_ visible: Bool) {
-        guard subviews.count >= 2 else { return }
-        isSidebarVisible = visible
-        subviews[0].isHidden = !visible
-        adjustSubviews()
-        if visible, let preferredSidebarWidth {
-            applySidebarWidth(preferredSidebarWidth)
-        }
-    }
-
     func applySidebarWidth(_ width: Double) {
-        guard isSidebarVisible, subviews.count >= 2 else { return }
+        guard subviews.count >= 2 else { return }
         let bounded = min(
             ProjectSidebarWorkspaceValidator.maximumSidebarWidth,
             max(ProjectSidebarWorkspaceValidator.minimumSidebarWidth, width)
@@ -229,27 +203,22 @@ final class ProjectSidebarNativeSplitView: NSSplitView {
 struct ProjectSidebarSidebarContent: View {
     @ObservedObject var controller: ProjectSidebarController
 
-    @ViewBuilder
     var body: some View {
-        if controller.workspace.sidebarVisible {
-            ZStack {
-                ProjectSidebarOutlineView(controller: controller)
+        ZStack {
+            ProjectSidebarOutlineView(controller: controller)
 
-                if controller.workspace.projects.isEmpty && controller.workspace.groups.isEmpty {
-                    emptyState
-                }
+            if controller.workspace.projects.isEmpty && controller.workspace.groups.isEmpty {
+                emptyState
             }
-            .overlay(alignment: .bottom) {
-                if let notice = controller.recoveryNotice {
-                    Text(notice)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(8)
-                        .background(.thinMaterial)
-                }
+        }
+        .overlay(alignment: .bottom) {
+            if let notice = controller.recoveryNotice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+                    .background(.thinMaterial)
             }
-        } else {
-            Color.clear
         }
     }
 

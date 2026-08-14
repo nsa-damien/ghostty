@@ -17,8 +17,8 @@ Individual developers can keep multiple coding-agent and shell sessions running 
 - **B5** — Folder and project names are non-empty and globally unique within their respective types; terminal names are non-empty and unique within a project. All can be renamed without changing paths or running processes.
 - **B6** — The workspace supports ungrouped projects and one level of named folders containing projects; folders cannot nest, and terminals remain direct children of projects.
 - **B7** — Users manually reorder folders, projects, and terminal entries, and move projects between ungrouped and folder positions. Terminals cannot move between projects.
-- **B8** — Folders and projects can be collapsed. The sidebar can be resized or hidden. Expansion, visibility, width, and manual ordering persist without affecting running terminals.
-- **B9** — Every terminal entry visibly reports whether it is running, stopped, or unavailable. A stable saved name remains primary; shell-generated titles may appear only as secondary information.
+- **B8** — Folders and projects can be collapsed, and the sidebar can be resized. Expansion, width, and manual ordering persist without affecting running terminals.
+- **B9** — Every terminal entry visibly reports whether it is running, stopped, or unavailable and shows only its stable saved name, never a shell-generated title or path.
 - **B10** — Terminals in multiple projects continue running concurrently while selecting an entry changes only the terminal displayed in the main area.
 - **B11** — Closing a terminal stops its process but preserves its name, launch directory, project, and position for later reuse.
 - **B12** — Selecting a stopped entry launches a fresh terminal in its saved directory. An unavailable directory never falls back silently to another location.
@@ -28,7 +28,7 @@ Individual developers can keep multiple coding-agent and shell sessions running 
 - **B16** — Deleting a running terminal entry requires confirmation and stops its process; deleting a stopped entry removes it directly.
 - **B17** — Deleting a folder moves its projects to the workspace’s ungrouped project area without stopping processes.
 - **B18** — Deleting a project requires confirmation, states how many running terminals will stop, and removes the project and its terminal entries.
-- **B19** — Quitting with running terminals requires confirmation stating how many sessions will stop. Relaunch restores their saved entries as stopped.
+- **B19** — Quitting requires confirmation only when a terminal has an active foreground process. Idle shells at their prompts quit immediately; relaunch restores saved entries as stopped.
 - **B20** — Sidebar terminal entries replace native tabs as the primary session navigation, while existing terminal and split-pane behavior remains available within the selected entry.
 - **B21** — `Command-T` creates and launches a terminal in the selected project, or opens project creation when none is selected. `Command-W` stops the selected process but preserves its entry.
 - **B22** — With no projects or folders, the workspace explains the folder-and-project model and provides actions to create either one.
@@ -42,8 +42,8 @@ Individual developers can keep multiple coding-agent and shell sessions running 
 - **B5** — Verified when empty or conflicting names show an inline error without discarding input, and valid folder, project, and terminal renames leave paths and running processes unchanged.
 - **B6** — Verified when projects can be ungrouped or placed in one named folder, terminals remain under projects, and no action allows a folder inside another folder.
 - **B7** — Verified when drag-and-drop changes and preserves folder order, project order and folder membership, and terminal order, while no drop target permits a terminal to move between projects.
-- **B8** — Verified when collapse state, sidebar visibility, sidebar width, and order survive relaunch and hidden entries continue running.
-- **B9** — Verified when entries accurately show running, stopped, and unavailable states and a shell title change does not replace the saved sidebar name.
+- **B8** — Verified when collapse state, sidebar width, and order survive relaunch and entries continue running while collapsed.
+- **B9** — Verified when entries accurately show running, stopped, and unavailable states using only the saved sidebar name, even when the shell title or path changes.
 - **B10** — Verified when terminals in two projects continue producing output while the user switches the main view among them.
 - **B11** — Verified when closing a running terminal ends its process, marks the entry stopped, and preserves its saved metadata and placement.
 - **B12** — Verified when selecting a stopped entry launches a new process in its saved directory and selecting an unavailable entry launches nothing elsewhere.
@@ -53,7 +53,7 @@ Individual developers can keep multiple coding-agent and shell sessions running 
 - **B16** — Verified when deleting a running entry warns before stopping it, while deleting a stopped entry removes it without a process warning.
 - **B17** — Verified when deleting a populated folder leaves all its projects and terminals running or stopped as before in the ungrouped project area.
 - **B18** — Verified when project deletion reports the correct running-terminal count, changes nothing if cancelled, and removes all contained state if confirmed.
-- **B19** — Verified when quitting reports the correct live-session count, can be cancelled without effect, and a confirmed quit restores all entries as stopped on relaunch.
+- **B19** — Verified when quitting with only idle prompts exits without a warning, an active foreground process triggers a cancellable warning, and confirmed quit restores all entries as stopped on relaunch.
 - **B20** — Verified when sidebar selection provides terminal navigation without a native tab bar and split panes still work inside the selected entry.
 - **B21** — Verified when `Command-T` and `Command-W` produce the stated sidebar behaviors both with and without a selected project or running terminal.
 - **B22** — Verified when a fresh workspace explains folders and projects and offers New Folder and Create Project actions.

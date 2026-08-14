@@ -37,7 +37,6 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         let store = ProjectSidebarStore(directoryURL: directory)
         let workspace = ProjectSidebarWorkspace(
             ungroupedProjects: [ProjectSidebarProject(name: "Ghostty", baseFolder: "/tmp")],
-            sidebarVisible: false,
             sidebarWidth: 300
         )
 
@@ -49,6 +48,23 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertFalse(text.contains("running"))
         XCTAssertFalse(text.contains("surface"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.primaryURL.path))
+    }
+
+    func testStoreDropsLegacySidebarVisibilityPreference() throws {
+        let data = Data("""
+        {
+          "groups": [],
+          "ungroupedProjects": [],
+          "sidebarVisible": false,
+          "sidebarWidth": 300
+        }
+        """.utf8)
+
+        let workspace = try JSONDecoder().decode(ProjectSidebarWorkspace.self, from: data)
+        let encoded = try JSONEncoder().encode(workspace)
+        let text = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertFalse(text.contains("sidebarVisible"))
     }
 
     func testStoreRecoversFromBackupAfterPrimaryCorruption() throws {
@@ -439,28 +455,6 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertEqual(splitView.subviews[0].frame.width, 318, accuracy: 1)
     }
 
-    func testNativeSplitHidesEntireSidebarAndRestoresPersistedWidth() {
-        let splitView = ProjectSidebarNativeSplitView(
-            frame: NSRect(x: 0, y: 0, width: 1100, height: 720)
-        )
-        splitView.isVertical = true
-        splitView.addArrangedSubview(NSView())
-        splitView.addArrangedSubview(NSView())
-        splitView.restoreInitialSidebarWidth(318)
-
-        splitView.setSidebarVisible(false)
-        splitView.layoutSubtreeIfNeeded()
-
-        XCTAssertTrue(splitView.subviews[0].isHidden)
-        XCTAssertEqual(splitView.subviews[1].frame.width, splitView.bounds.width, accuracy: 1)
-
-        splitView.setSidebarVisible(true)
-        splitView.layoutSubtreeIfNeeded()
-
-        XCTAssertFalse(splitView.subviews[0].isHidden)
-        XCTAssertEqual(splitView.subviews[0].frame.width, 318, accuracy: 1)
-    }
-
     func testNativeSplitDoesNotReportWidthBeforeInitialRestoreCompletes() {
         let splitView = ProjectSidebarNativeSplitView()
 
@@ -583,5 +577,29 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertTrue(cell.titleField.isEditable)
         XCTAssertTrue(cell.titleField.isSelectable)
         XCTAssertTrue(cell.titleField.acceptsFirstResponder)
+    }
+
+    func testSidebarCellConstrainsLongTitleInsideSelectionHighlight() {
+        let cell = SidebarCell(identifier: .init("OverflowCell"))
+        cell.frame = NSRect(x: 0, y: 0, width: 280, height: 28)
+        cell.titleField.stringValue = "nsa-data-wrangler-v2-with-a-very-long-name"
+
+        cell.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThanOrEqual(
+            cell.titleField.frame.maxX,
+            cell.bounds.maxX - 4 + 0.5
+        )
+    }
+
+    func testQuitPolicyWarnsOnlyForEntriesWithForegroundProcesses() {
+        XCTAssertEqual(
+            ProjectSidebarQuitPolicy.entriesRequiringConfirmation([[false], [false, false]]),
+            0
+        )
+        XCTAssertEqual(
+            ProjectSidebarQuitPolicy.entriesRequiringConfirmation([[false], [true, false], [true]]),
+            2
+        )
     }
 }

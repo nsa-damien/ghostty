@@ -6,18 +6,15 @@ struct ProjectSidebarWorkspace: Codable, Equatable {
 
     var groups: [ProjectSidebarGroup]
     var ungroupedProjects: [ProjectSidebarProject]
-    var sidebarVisible: Bool
     var sidebarWidth: Double
 
     init(
         groups: [ProjectSidebarGroup] = [],
         ungroupedProjects: [ProjectSidebarProject] = [],
-        sidebarVisible: Bool = true,
         sidebarWidth: Double = 240
     ) {
         self.groups = groups
         self.ungroupedProjects = ungroupedProjects
-        self.sidebarVisible = sidebarVisible
         self.sidebarWidth = sidebarWidth
     }
 
@@ -30,7 +27,6 @@ struct ProjectSidebarWorkspace: Codable, Equatable {
         case groups
         case ungroupedProjects
         case projects
-        case sidebarVisible
         case sidebarWidth
     }
 
@@ -41,7 +37,6 @@ struct ProjectSidebarWorkspace: Codable, Equatable {
             [ProjectSidebarProject].self,
             forKey: .ungroupedProjects
         ) ?? container.decodeIfPresent([ProjectSidebarProject].self, forKey: .projects) ?? []
-        sidebarVisible = try container.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
         sidebarWidth = try container.decodeIfPresent(Double.self, forKey: .sidebarWidth) ?? 240
     }
 
@@ -49,7 +44,6 @@ struct ProjectSidebarWorkspace: Codable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(groups, forKey: .groups)
         try container.encode(ungroupedProjects, forKey: .ungroupedProjects)
-        try container.encode(sidebarVisible, forKey: .sidebarVisible)
         try container.encode(sidebarWidth, forKey: .sidebarWidth)
     }
 }

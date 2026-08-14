@@ -325,6 +325,7 @@ class AppDelegate: NSObject,
         }
 
         // Setup our menu
+        menuCheckForUpdates?.isHidden = !UpdateController.isEnabled
         setupMenuImages()
 
         // Setup signal handlers

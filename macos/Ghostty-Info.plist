@@ -50,6 +50,8 @@
 	<string></string>
 	<key>GhosttyCommit</key>
 	<string></string>
+	<key>GhosttyEnableUpdates</key>
+	<string>$(GHOSTTY_ENABLE_UPDATES)</string>
 	<key>LSEnvironment</key>
 	<dict>
 		<key>GHOSTTY_MAC_LAUNCH_SOURCE</key>

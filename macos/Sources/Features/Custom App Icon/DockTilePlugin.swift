@@ -7,9 +7,10 @@ class DockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private let pluginBundle = Bundle(for: DockTilePlugin.self)
 
-    // Separate defaults based on debug vs release builds so we can test icons
-    // without messing up releases.
-    #if DEBUG
+    // Keep the branded development app isolated from official Ghostty defaults.
+    #if GHOSTTY_DEV
+    private let ghosttyUserDefaults = UserDefaults(suiteName: "com.northshoreautomation.ghostty-dev")
+    #elseif DEBUG
     private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty.debug")
     #else
     private let ghosttyUserDefaults = UserDefaults(suiteName: "com.mitchellh.ghostty")

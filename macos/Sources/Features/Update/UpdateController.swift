@@ -9,6 +9,19 @@ import SwiftUI
 /// for managing updates with Ghostty's custom driver and delegate. It handles
 /// initialization, starting the updater, and provides the check for updates action.
 class UpdateController {
+    static var isEnabled: Bool {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "GhosttyEnableUpdates") else {
+            return true
+        }
+
+        if let value = value as? Bool { return value }
+        if let value = value as? NSString {
+            if value.length == 0 { return true }
+            return value.boolValue
+        }
+        return true
+    }
+
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
 
@@ -40,6 +53,8 @@ class UpdateController {
     /// This must be called before the updater can check for updates. If starting fails,
     /// the error will be shown to the user.
     func startUpdater() {
+        guard Self.isEnabled else { return }
+
         do {
             try updater.start()
         } catch {
@@ -60,6 +75,8 @@ class UpdateController {
     ///
     /// This is typically connected to a menu item action.
     func checkForUpdates() {
+        guard Self.isEnabled else { return }
+
         // If we're already idle, then just check for updates immediately.
         if viewModel.state == .idle {
             updater.checkForUpdates()

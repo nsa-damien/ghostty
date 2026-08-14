@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - Added the macOS Project Sidebar workspace model, persistent project and terminal organization,
   app-owned runtime registry, workspace window, and strict launch-directory handling.
+- Added local Developer ID signing and Apple notarization commands that produce a checksummed,
+  universal `Ghostty Dev` archive for private distribution and clean-machine testing.
+- Added a release-contract regression test covering app identity, install isolation, updater
+  isolation, signing, notarization, and secret-free automation.
 
 ### Changed
 
@@ -17,6 +21,9 @@ All notable changes to this project will be documented in this file.
 - Added discoverable `make help` and `make run` commands for rebuilding and launching the debug
   macOS app with the required Metal toolchain under the distinct `Ghostty Dev` name, plus
   `make release`, `make release-run`, and `make release-install` for optimized local builds.
+- Branded debug and local release builds as `Ghostty Dev` with the distinct
+  `com.northshoreautomation.ghostty-dev` bundle identity, isolated Dock preferences, and upstream
+  Sparkle updates disabled so the private build can coexist with the official Ghostty app.
 - Persisted the project sidebar width across relaunches and window resizing, kept row text responsive
   while resizing, and immediately revealed new projects by refreshing and expanding their folder.
 - Clarified that sidebar items are removed rather than deleted from disk, added folder and project

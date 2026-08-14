@@ -34,6 +34,39 @@ enum ProjectSidebarQuitPolicy {
     }
 }
 
+enum ProjectSidebarPaneCloseDecision: Equatable {
+    case ignore
+    case closeWithoutConfirmation
+    case closeWithConfirmation
+}
+
+enum ProjectSidebarPaneClosePolicy {
+    static func decision(
+        surfaceCount: Int,
+        focusedSurfaceNeedsConfirmation: Bool
+    ) -> ProjectSidebarPaneCloseDecision {
+        guard surfaceCount > 1 else { return .ignore }
+        return focusedSurfaceNeedsConfirmation
+            ? .closeWithConfirmation
+            : .closeWithoutConfirmation
+    }
+
+    static func perform(
+        decision: ProjectSidebarPaneCloseDecision,
+        requestConfirmation: (@escaping () -> Void) -> Void,
+        close: @escaping () -> Void
+    ) {
+        switch decision {
+        case .ignore:
+            return
+        case .closeWithoutConfirmation:
+            close()
+        case .closeWithConfirmation:
+            requestConfirmation(close)
+        }
+    }
+}
+
 /// A runtime owns the complete split tree for one logical sidebar entry. It is deliberately not
 /// a window controller: the workspace window is only a presentation host, while this object keeps
 /// the surfaces alive when another entry is selected or the window is hidden.

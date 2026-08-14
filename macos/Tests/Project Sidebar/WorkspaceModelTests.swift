@@ -615,4 +615,110 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
             2
         )
     }
+
+    func testClosePanePolicyProtectsLastPaneAndActiveProcesses() {
+        XCTAssertEqual(
+            ProjectSidebarPaneClosePolicy.decision(
+                surfaceCount: 1,
+                focusedSurfaceNeedsConfirmation: false
+            ),
+            .ignore
+        )
+        XCTAssertEqual(
+            ProjectSidebarPaneClosePolicy.decision(
+                surfaceCount: 1,
+                focusedSurfaceNeedsConfirmation: true
+            ),
+            .ignore
+        )
+        XCTAssertEqual(
+            ProjectSidebarPaneClosePolicy.decision(
+                surfaceCount: 2,
+                focusedSurfaceNeedsConfirmation: false
+            ),
+            .closeWithoutConfirmation
+        )
+        XCTAssertEqual(
+            ProjectSidebarPaneClosePolicy.decision(
+                surfaceCount: 2,
+                focusedSurfaceNeedsConfirmation: true
+            ),
+            .closeWithConfirmation
+        )
+    }
+
+    func testClosePanePolicyWaitsForConfirmationBeforeClosing() {
+        var pendingConfirmation: (() -> Void)?
+        var closeCount = 0
+
+        ProjectSidebarPaneClosePolicy.perform(
+            decision: .closeWithConfirmation,
+            requestConfirmation: { pendingConfirmation = $0 },
+            close: { closeCount += 1 }
+        )
+
+        XCTAssertEqual(closeCount, 0)
+        XCTAssertNotNil(pendingConfirmation)
+
+        pendingConfirmation?()
+
+        XCTAssertEqual(closeCount, 1)
+    }
+
+    func testPaneCloseConfirmationPresenterUsesWorkspaceWindowAndWaitsForApproval() throws {
+        let presenter = PaneCloseConfirmationPresenter()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let closeExpectation = expectation(description: "close confirmed")
+        var closeCount = 0
+
+        presenter.requestConfirmation(in: window) {
+            closeCount += 1
+            closeExpectation.fulfill()
+        }
+
+        XCTAssertEqual(closeCount, 0)
+        XCTAssertTrue(presenter.isPresenting)
+        let sheet = try XCTUnwrap(window.attachedSheet)
+
+        window.endSheet(sheet, returnCode: .alertFirstButtonReturn)
+        wait(for: [closeExpectation], timeout: 1)
+
+        XCTAssertEqual(closeCount, 1)
+        XCTAssertFalse(presenter.isPresenting)
+    }
+
+    func testPaneCloseConfirmationPresenterCancelsAndRejectsDuplicateAlerts() throws {
+        let presenter = PaneCloseConfirmationPresenter()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        var firstCloseCount = 0
+        var duplicateCloseCount = 0
+
+        presenter.requestConfirmation(in: window) { firstCloseCount += 1 }
+        let firstAlert = try XCTUnwrap(presenter.alert)
+        presenter.requestConfirmation(in: window) { duplicateCloseCount += 1 }
+
+        XCTAssertTrue(presenter.alert === firstAlert)
+        XCTAssertTrue(window.attachedSheet === firstAlert.window)
+
+        let dismissed = expectation(
+            forNotification: NSWindow.didEndSheetNotification,
+            object: window
+        )
+        window.endSheet(firstAlert.window, returnCode: .alertSecondButtonReturn)
+        wait(for: [dismissed], timeout: 1)
+
+        XCTAssertEqual(firstCloseCount, 0)
+        XCTAssertEqual(duplicateCloseCount, 0)
+        XCTAssertFalse(presenter.isPresenting)
+    }
 }

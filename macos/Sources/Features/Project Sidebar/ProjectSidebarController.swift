@@ -26,6 +26,29 @@ enum ProjectSidebarMutationError: Error, Equatable, LocalizedError {
     }
 }
 
+final class PaneCloseConfirmationPresenter {
+    private(set) var alert: NSAlert?
+
+    var isPresenting: Bool { alert != nil }
+
+    func requestConfirmation(in window: NSWindow?, close: @escaping () -> Void) {
+        guard alert == nil, let window else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Close Terminal?"
+        alert.informativeText = "The terminal still has a running process. If you close the terminal the process will be killed."
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        self.alert = alert
+        alert.beginSheetModal(for: window) { [weak self] response in
+            self?.alert = nil
+            guard response == .alertFirstButtonReturn else { return }
+            close()
+        }
+    }
+}
+
 final class ProjectSidebarController: NSObject, ObservableObject {
     let ghostty: Ghostty.App
     let runtimeRegistry = ProjectSidebarRuntimeRegistry()
@@ -37,6 +60,7 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     @Published private(set) var launchFailures: Set<UUID> = []
 
     private let store: ProjectSidebarStore
+    private let paneCloseConfirmationPresenter = PaneCloseConfirmationPresenter()
     private var windowController: ProjectSidebarWindowController?
     private var statusTimer: Timer?
 
@@ -417,9 +441,30 @@ final class ProjectSidebarController: NSObject, ObservableObject {
     }
 
     func performCloseSelectedTerminal() {
-        guard let selectedEntryID else { return }
-        runtimeRegistry.stop(entryID: selectedEntryID)
-        self.selectedEntryID = nil
+        guard let selectedEntryID,
+              let runtime = runtimeRegistry.runtime(for: selectedEntryID),
+              let focusedSurface = runtime.controller.focusedSurface else { return }
+
+        let decision = ProjectSidebarPaneClosePolicy.decision(
+            surfaceCount: runtime.controller.surfaceTree.count,
+            focusedSurfaceNeedsConfirmation: focusedSurface.needsConfirmQuit
+        )
+        ProjectSidebarPaneClosePolicy.perform(
+            decision: decision,
+            requestConfirmation: { [weak self] close in
+                self?.confirmCloseFocusedPane(close)
+            },
+            close: {
+                runtime.controller.closeSurface(focusedSurface, withConfirmation: false)
+            }
+        )
+    }
+
+    private func confirmCloseFocusedPane(_ close: @escaping () -> Void) {
+        paneCloseConfirmationPresenter.requestConfirmation(
+            in: windowController?.window,
+            close: close
+        )
     }
 
     func setExpanded(id: UUID, expanded: Bool) {

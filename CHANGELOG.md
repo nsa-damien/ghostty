@@ -33,3 +33,5 @@ All notable changes to this project will be documented in this file.
   rows.
 - Limited quit confirmation to sidebar terminals with active foreground processes, allowing idle
   shells at their prompts to quit immediately.
+- Changed `Command-W` in the project sidebar to close only the focused split pane, protect the last
+  remaining pane, and warn before closing a pane with an active foreground process.

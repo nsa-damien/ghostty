@@ -71,6 +71,9 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         self.workspace = result.workspace
         self.recoveryNotice = result.notice
         super.init()
+        runtimeRegistry.runtimeDidExit = { [weak self] entryID in
+            self?.removeExitedTerminal(entryID)
+        }
         statusTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -362,6 +365,17 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         launchFailures.remove(entryID)
         if selectedEntryID == entryID { selectedEntryID = nil }
         return true
+    }
+
+    private func removeExitedTerminal(_ entryID: UUID) {
+        guard let updated = ProjectSidebarTerminalExitPolicy.removing(entryID, from: workspace) else { return }
+        do {
+            try commit(updated)
+            launchFailures.remove(entryID)
+            if selectedEntryID == entryID { selectedEntryID = nil }
+        } catch {
+            present(error: error)
+        }
     }
 
     @discardableResult

@@ -34,6 +34,33 @@ enum ProjectSidebarQuitPolicy {
     }
 }
 
+enum ProjectSidebarTerminalExitPolicy {
+    static func removing(
+        _ entryID: UUID,
+        from workspace: ProjectSidebarWorkspace
+    ) -> ProjectSidebarWorkspace? {
+        guard let location = workspace.projects.compactMap({ project in
+            project.terminals.contains(where: { $0.id == entryID })
+                ? workspace.location(ofProject: project.id)
+                : nil
+        }).first else { return nil }
+
+        var project = workspace.project(at: location)
+        project.terminals.removeAll(where: { $0.id == entryID })
+        var updated = workspace
+        updated.replaceProject(at: location, with: project)
+        return updated
+    }
+}
+
+enum ProjectSidebarRuntimeShutdownPolicy {
+    static func takeAll<Runtime>(from runtimes: inout [UUID: Runtime]) -> [Runtime] {
+        let result = Array(runtimes.values)
+        runtimes.removeAll()
+        return result
+    }
+}
+
 enum ProjectSidebarPaneCloseDecision: Equatable {
     case ignore
     case closeWithoutConfirmation
@@ -73,8 +100,14 @@ enum ProjectSidebarPaneClosePolicy {
 final class ProjectSidebarRuntime: NSObject {
     let entryID: UUID
     let controller: BaseTerminalController
+    private var surfaceTreeCancellable: AnyCancellable?
 
-    init(entryID: UUID, ghostty: Ghostty.App, launchDirectory: String) {
+    init(
+        entryID: UUID,
+        ghostty: Ghostty.App,
+        launchDirectory: String,
+        onEmpty: @escaping (UUID) -> Void
+    ) {
         self.entryID = entryID
         var configuration = Ghostty.SurfaceConfiguration()
         configuration.workingDirectory = launchDirectory
@@ -84,6 +117,16 @@ final class ProjectSidebarRuntime: NSObject {
             self.controller.focusedSurface = view
         }
         super.init()
+        surfaceTreeCancellable = controller.$surfaceTree
+            .dropFirst()
+            .map(\.isEmpty)
+            .removeDuplicates()
+            .filter { $0 }
+            .prefix(1)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                onEmpty(self.entryID)
+            }
     }
 
     var status: ProjectSidebarEntryStatus {
@@ -104,6 +147,7 @@ final class ProjectSidebarRuntime: NSObject {
 /// hierarchy, is the source of truth for running-session counts and surface lookup.
 final class ProjectSidebarRuntimeRegistry: ObservableObject {
     @Published private(set) var runtimes: [UUID: ProjectSidebarRuntime] = [:]
+    var runtimeDidExit: ((UUID) -> Void)?
 
     func runtime(for entryID: UUID) -> ProjectSidebarRuntime? {
         runtimes[entryID]
@@ -111,9 +155,19 @@ final class ProjectSidebarRuntimeRegistry: ObservableObject {
 
     func start(entryID: UUID, ghostty: Ghostty.App, launchDirectory: String) -> ProjectSidebarRuntime {
         if let runtime = runtimes[entryID] { return runtime }
-        let runtime = ProjectSidebarRuntime(entryID: entryID, ghostty: ghostty, launchDirectory: launchDirectory)
+        let runtime = ProjectSidebarRuntime(
+            entryID: entryID,
+            ghostty: ghostty,
+            launchDirectory: launchDirectory,
+            onEmpty: { [weak self] entryID in self?.runtimeBecameEmpty(entryID) }
+        )
         runtimes[entryID] = runtime
         return runtime
+    }
+
+    private func runtimeBecameEmpty(_ entryID: UUID) {
+        guard runtimes.removeValue(forKey: entryID) != nil else { return }
+        runtimeDidExit?(entryID)
     }
 
     func stop(entryID: UUID) {
@@ -121,8 +175,8 @@ final class ProjectSidebarRuntimeRegistry: ObservableObject {
     }
 
     func stopAll() {
-        runtimes.values.forEach { $0.controller.stopAllSurfacesImmediately() }
-        runtimes.removeAll()
+        let runtimesToStop = ProjectSidebarRuntimeShutdownPolicy.takeAll(from: &runtimes)
+        runtimesToStop.forEach { $0.controller.stopAllSurfacesImmediately() }
     }
 
     func isRunning(entryID: UUID) -> Bool {

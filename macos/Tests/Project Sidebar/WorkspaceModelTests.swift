@@ -626,6 +626,33 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         )
     }
 
+    func testExitedTerminalPolicyRemovesOnlyExitedEntryAndIsIdempotent() {
+        let exited = ProjectSidebarTerminal(name: "Exited", launchDirectory: "/tmp")
+        let sibling = ProjectSidebarTerminal(name: "Sibling", launchDirectory: "/tmp")
+        let project = ProjectSidebarProject(
+            name: "Ghostty",
+            baseFolder: "/tmp",
+            terminals: [exited, sibling]
+        )
+        let workspace = ProjectSidebarWorkspace(ungroupedProjects: [project])
+
+        let updated = ProjectSidebarTerminalExitPolicy.removing(exited.id, from: workspace)
+
+        XCTAssertEqual(updated?.ungroupedProjects[0].terminals, [sibling])
+        XCTAssertNil(ProjectSidebarTerminalExitPolicy.removing(exited.id, from: try XCTUnwrap(updated)))
+    }
+
+    func testShutdownTakesAllRuntimesBeforeStoppingSurfaces() {
+        let firstID = UUID()
+        let secondID = UUID()
+        var runtimes = [firstID: "first", secondID: "second"]
+
+        let stopped = ProjectSidebarRuntimeShutdownPolicy.takeAll(from: &runtimes)
+
+        XCTAssertTrue(runtimes.isEmpty)
+        XCTAssertEqual(Set(stopped), ["first", "second"])
+    }
+
     func testClosePanePolicyProtectsLastPaneAndActiveProcesses() {
         XCTAssertEqual(
             ProjectSidebarPaneClosePolicy.decision(

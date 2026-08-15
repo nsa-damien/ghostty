@@ -833,6 +833,11 @@ final class SidebarCell: NSTableCellView {
     let titleField = NSTextField(labelWithString: "")
     private let validationField = NSTextField(labelWithString: "")
     private let iconView = NSImageView()
+    private var usesSecondaryTitleColor = false
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { updateTitleColor() }
+    }
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
@@ -887,7 +892,8 @@ final class SidebarCell: NSTableCellView {
         case .section(let section):
             titleField.stringValue = section.title
             titleField.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
-            titleField.textColor = .secondaryLabelColor
+            usesSecondaryTitleColor = true
+            updateTitleColor()
             iconView.image = nil
         case .group(let group):
             titleField.stringValue = group.name
@@ -920,7 +926,16 @@ final class SidebarCell: NSTableCellView {
 
     private func standardTitle() {
         titleField.font = .systemFont(ofSize: NSFont.systemFontSize)
-        titleField.textColor = .labelColor
+        usesSecondaryTitleColor = false
+        updateTitleColor()
+    }
+
+    private func updateTitleColor() {
+        if backgroundStyle == .emphasized {
+            titleField.textColor = .alternateSelectedControlTextColor
+        } else {
+            titleField.textColor = usesSecondaryTitleColor ? .secondaryLabelColor : .labelColor
+        }
     }
 }
 

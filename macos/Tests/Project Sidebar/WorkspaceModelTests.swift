@@ -605,6 +605,16 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertEqual(longTitleFrame.maxX, longTitleCell.bounds.maxX - 4, accuracy: 0.5)
     }
 
+    func testSidebarCellUsesSelectedTextColorForHighlightedRows() {
+        let cell = SidebarCell(identifier: .init("SelectedColorCell"))
+
+        cell.backgroundStyle = .normal
+        XCTAssertEqual(cell.titleField.textColor, .labelColor)
+
+        cell.backgroundStyle = .emphasized
+        XCTAssertEqual(cell.titleField.textColor, .alternateSelectedControlTextColor)
+    }
+
     func testQuitPolicyWarnsOnlyForEntriesWithForegroundProcesses() {
         XCTAssertEqual(
             ProjectSidebarQuitPolicy.entriesRequiringConfirmation([[false], [false, false]]),

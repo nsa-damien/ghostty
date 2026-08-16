@@ -24,6 +24,23 @@ enum ProjectSidebarEntryStatus: Equatable {
     }
 }
 
+enum ProjectSidebarEntryAttention: Equatable {
+    case none
+    case needsAttention
+
+    init(surfaceBellStates: [Bool]) {
+        self = surfaceBellStates.contains(true) ? .needsAttention : .none
+    }
+
+    var accessibilityLabel: String? {
+        switch self {
+        case .none: nil
+        case .needsAttention:
+            "Needs attention: a background terminal completed a command or rang its bell."
+        }
+    }
+}
+
 enum ProjectSidebarQuitPolicy {
     static func entryRequiresConfirmation(_ surfaceStates: [Bool]) -> Bool {
         surfaceStates.contains(true)
@@ -134,6 +151,10 @@ final class ProjectSidebarRuntime: NSObject {
         return controller.surfaceTree.contains(where: { !$0.processExited })
             ? .running
             : .stopped
+    }
+
+    var attention: ProjectSidebarEntryAttention {
+        ProjectSidebarEntryAttention(surfaceBellStates: controller.surfaceTree.map(\.bell))
     }
 
     var needsQuitConfirmation: Bool {

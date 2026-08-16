@@ -418,6 +418,25 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertEqual(ProjectSidebarWidthPersistence.updatedWidth(current: 240, measured: 700), 560)
     }
 
+    func testSidebarAttentionAggregatesBellStateAcrossTerminalPanes() {
+        XCTAssertEqual(
+            ProjectSidebarEntryAttention(surfaceBellStates: [false, false]),
+            .none
+        )
+        XCTAssertEqual(
+            ProjectSidebarEntryAttention(surfaceBellStates: [false, true]),
+            .needsAttention
+        )
+        XCTAssertEqual(
+            ProjectSidebarEntryAttention(surfaceBellStates: []),
+            .none
+        )
+        XCTAssertEqual(
+            ProjectSidebarEntryAttention.needsAttention.accessibilityLabel,
+            "Needs attention: a background terminal completed a command or rang its bell."
+        )
+    }
+
     func testSidebarContextMenusKeepProjectOrganizationInDragAndDrop() {
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .background),

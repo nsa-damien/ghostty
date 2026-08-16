@@ -814,6 +814,8 @@ final class SidebarCell: NSTableCellView {
     let titleField = NSTextField(labelWithString: "")
     private let validationField = NSTextField(labelWithString: "")
     private let iconView = NSImageView()
+    private let attentionIndicator = NSImageView()
+    private var attentionWidthConstraint: NSLayoutConstraint!
     private var usesSecondaryTitleColor = false
 
     override var backgroundStyle: NSView.BackgroundStyle {
@@ -822,10 +824,15 @@ final class SidebarCell: NSTableCellView {
 
     init(identifier: NSUserInterfaceItemIdentifier) {
         super.init(frame: .zero)
+        attentionWidthConstraint = attentionIndicator.widthAnchor.constraint(equalToConstant: 0)
         self.identifier = identifier
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.symbolConfiguration = .init(pointSize: 14, weight: .regular)
+        attentionIndicator.translatesAutoresizingMaskIntoConstraints = false
+        attentionIndicator.symbolConfiguration = .init(pointSize: 12, weight: .semibold)
+        attentionIndicator.contentTintColor = .systemOrange
+        attentionIndicator.isHidden = true
         titleField.translatesAutoresizingMaskIntoConstraints = false
         titleField.lineBreakMode = .byTruncatingTail
         titleField.usesSingleLineMode = true
@@ -847,6 +854,7 @@ final class SidebarCell: NSTableCellView {
 
         addSubview(iconView)
         addSubview(labels)
+        addSubview(attentionIndicator)
         imageView = iconView
         textField = titleField
         NSLayoutConstraint.activate([
@@ -855,10 +863,14 @@ final class SidebarCell: NSTableCellView {
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
             labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
-            labels.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            labels.trailingAnchor.constraint(equalTo: attentionIndicator.leadingAnchor),
             labels.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.widthAnchor.constraint(equalTo: labels.widthAnchor),
             validationField.widthAnchor.constraint(equalTo: labels.widthAnchor),
+            attentionIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            attentionIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            attentionWidthConstraint,
+            attentionIndicator.heightAnchor.constraint(equalToConstant: 14),
         ])
     }
 
@@ -868,6 +880,7 @@ final class SidebarCell: NSTableCellView {
         titleField.isEditable = false
         titleField.isSelectable = false
         showValidationError(nil)
+        setAttention(.none)
 
         switch node.kind {
         case .section(let section):
@@ -892,6 +905,21 @@ final class SidebarCell: NSTableCellView {
             let status = controller.entryStatus(terminal.id)
             iconView.contentTintColor = status == .running ? .systemGreen : .secondaryLabelColor
             iconView.image = NSImage(systemSymbolName: status.systemImage, accessibilityDescription: status.label)
+            setAttention(controller.runtime(for: terminal.id)?.attention ?? .none)
+        }
+    }
+
+    private func setAttention(_ attention: ProjectSidebarEntryAttention) {
+        attentionIndicator.isHidden = attention == .none
+        attentionWidthConstraint.constant = attention == .none ? 0 : 14
+        attentionIndicator.image = switch attention {
+        case .none:
+            nil
+        case .needsAttention:
+            NSImage(
+                systemSymbolName: "bell.badge.fill",
+                accessibilityDescription: attention.accessibilityLabel
+            )
         }
     }
 

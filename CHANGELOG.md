@@ -43,3 +43,5 @@ All notable changes to this project will be documented in this file.
   bell, while clarifying that the green terminal indicator means a live process.
 - Added persistent Finder-like color tags for sidebar folders and projects, with accessible named
   color choices that remain distinct from terminal runtime and attention indicators.
+- Added sidebar-only `Command-[` and `Command-]` shortcuts to cycle through saved terminal
+  entries without changing terminal-window split navigation.

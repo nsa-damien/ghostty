@@ -3,6 +3,61 @@ import XCTest
 @testable import Ghostty
 
 final class ProjectSidebarWorkspaceModelTests: XCTestCase {
+    func testSidebarTerminalCyclingWrapsInVisualOrder() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let entryIDs = [first, second, third]
+
+        XCTAssertEqual(
+            ProjectSidebarTerminalCycling.entryID(
+                in: entryIDs,
+                adjacentTo: second,
+                direction: .next
+            ),
+            third
+        )
+        XCTAssertEqual(
+            ProjectSidebarTerminalCycling.entryID(
+                in: entryIDs,
+                adjacentTo: third,
+                direction: .next
+            ),
+            first
+        )
+        XCTAssertEqual(
+            ProjectSidebarTerminalCycling.entryID(
+                in: entryIDs,
+                adjacentTo: first,
+                direction: .previous
+            ),
+            third
+        )
+        XCTAssertEqual(
+            ProjectSidebarTerminalCycling.entryID(
+                in: entryIDs,
+                adjacentTo: nil,
+                direction: .next
+            ),
+            first
+        )
+        XCTAssertEqual(
+            ProjectSidebarTerminalCycling.entryID(
+                in: entryIDs,
+                adjacentTo: nil,
+                direction: .previous
+            ),
+            third
+        )
+        XCTAssertNil(
+            ProjectSidebarTerminalCycling.entryID(
+                in: [],
+                adjacentTo: nil,
+                direction: .next
+            )
+        )
+    }
+
     func testValidatorEnforcesScopedNamesAndStableMetadata() throws {
         let entry = ProjectSidebarTerminal(name: " Terminal ", launchDirectory: "/tmp")
         let project = ProjectSidebarProject(

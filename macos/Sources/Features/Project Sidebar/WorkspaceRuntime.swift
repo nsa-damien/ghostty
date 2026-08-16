@@ -9,9 +9,17 @@ enum ProjectSidebarEntryStatus: Equatable {
 
     var label: String {
         switch self {
-        case .running: "Running"
-        case .stopped: "Stopped"
-        case .unavailable: "Unavailable"
+        case .running: "Terminal process running"
+        case .stopped: "Terminal stopped"
+        case .unavailable: "Terminal folder unavailable"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .running: "This terminal has a live process."
+        case .stopped: "This terminal is not running."
+        case .unavailable: "This terminal's launch folder is unavailable."
         }
     }
 

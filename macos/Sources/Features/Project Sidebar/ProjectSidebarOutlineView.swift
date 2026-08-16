@@ -881,6 +881,7 @@ final class SidebarCell: NSTableCellView {
         titleField.isSelectable = false
         showValidationError(nil)
         setAttention(.none)
+        iconView.toolTip = nil
 
         switch node.kind {
         case .section(let section):
@@ -905,6 +906,7 @@ final class SidebarCell: NSTableCellView {
             let status = controller.entryStatus(terminal.id)
             iconView.contentTintColor = status == .running ? .systemGreen : .secondaryLabelColor
             iconView.image = NSImage(systemSymbolName: status.systemImage, accessibilityDescription: status.label)
+            iconView.toolTip = status.helpText
             setAttention(controller.runtime(for: terminal.id)?.attention ?? .none)
         }
     }

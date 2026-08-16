@@ -437,6 +437,18 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         )
     }
 
+    func testSidebarRuntimeStatusExplainsItsProcessMeaning() {
+        XCTAssertEqual(ProjectSidebarEntryStatus.running.label, "Terminal process running")
+        XCTAssertEqual(ProjectSidebarEntryStatus.running.helpText, "This terminal has a live process.")
+        XCTAssertEqual(ProjectSidebarEntryStatus.stopped.label, "Terminal stopped")
+        XCTAssertEqual(ProjectSidebarEntryStatus.stopped.helpText, "This terminal is not running.")
+        XCTAssertEqual(ProjectSidebarEntryStatus.unavailable.label, "Terminal folder unavailable")
+        XCTAssertEqual(
+            ProjectSidebarEntryStatus.unavailable.helpText,
+            "This terminal's launch folder is unavailable."
+        )
+    }
+
     func testSidebarContextMenusKeepProjectOrganizationInDragAndDrop() {
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .background),

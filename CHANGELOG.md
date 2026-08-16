@@ -35,3 +35,11 @@ All notable changes to this project will be documented in this file.
   shells at their prompts to quit immediately.
 - Changed `Command-W` in the project sidebar to close only the focused split pane, protect the last
   remaining pane, and warn before closing a pane with an active foreground process.
+- Improved selected-row contrast, removed sidebar entries immediately after their terminal exits,
+  and made split-pane focus follow the pane the user clicks.
+- Moved project and folder creation into the sidebar footer, removed obsolete base-folder replacement
+  actions, and kept organization changes in the native sidebar controls.
+- Added a separate amber attention badge for background terminals that complete work or ring their
+  bell, while clarifying that the green terminal indicator means a live process.
+- Added persistent Finder-like color tags for sidebar folders and projects, with accessible named
+  color choices that remain distinct from terminal runtime and attention indicators.

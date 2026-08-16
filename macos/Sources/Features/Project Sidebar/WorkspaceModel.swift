@@ -48,22 +48,51 @@ struct ProjectSidebarWorkspace: Codable, Equatable {
     }
 }
 
+enum ProjectSidebarColorTag: String, Codable, CaseIterable, Equatable {
+    case red
+    case orange
+    case yellow
+    case green
+    case blue
+    case purple
+    case gray
+
+    var label: String {
+        switch self {
+        case .red: "Red"
+        case .orange: "Orange"
+        case .yellow: "Yellow"
+        case .green: "Green"
+        case .blue: "Blue"
+        case .purple: "Purple"
+        case .gray: "Gray"
+        }
+    }
+
+    var systemImage: String { "tag.fill" }
+
+    var accessibilityLabel: String { "\(label) organizational tag" }
+}
+
 struct ProjectSidebarGroup: Codable, Equatable, Identifiable {
     let id: UUID
     var name: String
     var projects: [ProjectSidebarProject]
     var isExpanded: Bool
+    var colorTag: ProjectSidebarColorTag?
 
     init(
         id: UUID = UUID(),
         name: String,
         projects: [ProjectSidebarProject] = [],
-        isExpanded: Bool = true
+        isExpanded: Bool = true,
+        colorTag: ProjectSidebarColorTag? = nil
     ) {
         self.id = id
         self.name = name
         self.projects = projects
         self.isExpanded = isExpanded
+        self.colorTag = colorTag
     }
 }
 
@@ -73,19 +102,22 @@ struct ProjectSidebarProject: Codable, Equatable, Identifiable {
     var baseFolder: String
     var terminals: [ProjectSidebarTerminal]
     var isExpanded: Bool
+    var colorTag: ProjectSidebarColorTag?
 
     init(
         id: UUID = UUID(),
         name: String,
         baseFolder: String,
         terminals: [ProjectSidebarTerminal] = [],
-        isExpanded: Bool = true
+        isExpanded: Bool = true,
+        colorTag: ProjectSidebarColorTag? = nil
     ) {
         self.id = id
         self.name = name
         self.baseFolder = baseFolder
         self.terminals = terminals
         self.isExpanded = isExpanded
+        self.colorTag = colorTag
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -94,6 +126,7 @@ struct ProjectSidebarProject: Codable, Equatable, Identifiable {
         case baseFolder
         case terminals
         case isExpanded
+        case colorTag
         case groups
         case ungroupedEntries
     }
@@ -104,6 +137,7 @@ struct ProjectSidebarProject: Codable, Equatable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         baseFolder = try container.decode(String.self, forKey: .baseFolder)
         isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
+        colorTag = try container.decodeIfPresent(ProjectSidebarColorTag.self, forKey: .colorTag)
         if let decoded = try container.decodeIfPresent([ProjectSidebarTerminal].self, forKey: .terminals) {
             terminals = decoded
         } else {
@@ -126,6 +160,7 @@ struct ProjectSidebarProject: Codable, Equatable, Identifiable {
         try container.encode(baseFolder, forKey: .baseFolder)
         try container.encode(terminals, forKey: .terminals)
         try container.encode(isExpanded, forKey: .isExpanded)
+        try container.encodeIfPresent(colorTag, forKey: .colorTag)
     }
 }
 

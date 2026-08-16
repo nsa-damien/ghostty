@@ -24,6 +24,7 @@ enum ProjectSidebarMenuCommand: Hashable {
     case addProject
     case newTerminal
     case rename
+    case tag
     case retry
     case changeFolder
     case removeFolder
@@ -37,6 +38,7 @@ enum ProjectSidebarMenuCommand: Hashable {
         case .addProject: "Add Project"
         case .newTerminal: "New Terminal"
         case .rename: "Rename"
+        case .tag: "Tags"
         case .retry: "Retry"
         case .changeFolder: "Change Folder"
         case .removeFolder: "Remove Folder"
@@ -60,9 +62,9 @@ enum ProjectSidebarContextMenu {
         case .background:
             [.addFolder, .addProject]
         case .folder:
-            [.addProject, .rename, .separator, .removeFolder]
+            [.addProject, .rename, .tag, .separator, .removeFolder]
         case .project:
-            [.newTerminal, .rename, .separator, .removeProject]
+            [.newTerminal, .rename, .tag, .separator, .removeProject]
         case .terminal(let canRetry):
             [.rename]
                 + (canRetry ? [.retry] : [])
@@ -690,6 +692,8 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             for command in ProjectSidebarContextMenu.commands(for: target) {
                 if command == .separator {
                     menu.addItem(.separator())
+                } else if command == .tag, let node, let item = tagMenuItem(for: node) {
+                    menu.addItem(item)
                 } else if let title = command.title {
                     menu.addItem(item(title, selector(for: command)))
                 }
@@ -703,6 +707,7 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             case .addProject: #selector(addProject)
             case .newTerminal: #selector(addTerminal)
             case .rename: #selector(renameMenuItem)
+            case .tag: #selector(setColorTag(_:))
             case .retry: #selector(retryTerminal)
             case .changeFolder: #selector(replaceTerminalFolder)
             case .removeFolder, .removeProject, .removeTerminal: #selector(removeMenuItem)
@@ -713,6 +718,35 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
         private func item(_ title: String, _ action: Selector) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
+            return item
+        }
+
+        private func tagMenuItem(for node: Node) -> NSMenuItem? {
+            let selectedTag: ProjectSidebarColorTag?
+            switch node.kind {
+            case .group(let group): selectedTag = group.colorTag
+            case .project(let project, _): selectedTag = project.colorTag
+            case .section, .terminal: return nil
+            }
+
+            let menu = NSMenu(title: "Tags")
+            let noTag = item("No Tag", #selector(setColorTag(_:)))
+            noTag.representedObject = ""
+            noTag.state = selectedTag == nil ? .on : .off
+            menu.addItem(noTag)
+            menu.addItem(.separator())
+
+            for tag in ProjectSidebarColorTag.allCases {
+                let tagItem = item(tag.label, #selector(setColorTag(_:)))
+                tagItem.representedObject = tag.rawValue
+                tagItem.image = tag.swatchImage()
+                tagItem.state = selectedTag == tag ? .on : .off
+                tagItem.setAccessibilityLabel("\(tag.label) tag")
+                menu.addItem(tagItem)
+            }
+
+            let item = NSMenuItem(title: "Tags", action: nil, keyEquivalent: "")
+            item.submenu = menu
             return item
         }
 
@@ -736,6 +770,23 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
         @objc private func renameMenuItem() {
             guard let menuNode else { return }
             beginRename(row: outlineView.row(forItem: menuNode))
+        }
+
+        @objc private func setColorTag(_ sender: NSMenuItem) {
+            guard let menuNode, let rawValue = sender.representedObject as? String else { return }
+            let colorTag = ProjectSidebarColorTag(rawValue: rawValue)
+            switch menuNode.kind {
+            case .group(let group):
+                controller.performSidebarMutation {
+                    try controller.setGroupColorTag(group.id, to: colorTag)
+                }
+            case .project(let project, _):
+                controller.performSidebarMutation {
+                    try controller.setProjectColorTag(project.id, to: colorTag)
+                }
+            case .section, .terminal:
+                return
+            }
         }
 
         @objc private func removeMenuItem() { remove(node: menuNode) }
@@ -810,12 +861,44 @@ final class ProjectSidebarScrollView: NSScrollView {
     }
 }
 
+private extension ProjectSidebarColorTag {
+    var color: NSColor {
+        switch self {
+        case .red: .systemRed
+        case .orange: .systemOrange
+        case .yellow: .systemYellow
+        case .green: .systemGreen
+        case .blue: .systemBlue
+        case .purple: .systemPurple
+        case .gray: .systemGray
+        }
+    }
+
+    func swatchImage() -> NSImage {
+        let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+            let circle = rect.insetBy(dx: 1, dy: 1)
+            color.setFill()
+            NSBezierPath(ovalIn: circle).fill()
+            NSColor.separatorColor.setStroke()
+            let border = NSBezierPath(ovalIn: circle)
+            border.lineWidth = 1
+            border.stroke()
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+}
+
 final class SidebarCell: NSTableCellView {
     let titleField = NSTextField(labelWithString: "")
     private let validationField = NSTextField(labelWithString: "")
     private let iconView = NSImageView()
+    private let tagIndicator = NSImageView()
     private let attentionIndicator = NSImageView()
     private var attentionWidthConstraint: NSLayoutConstraint!
+    private var labelsLeadingConstraint: NSLayoutConstraint!
+    private var taggedLabelsLeadingConstraint: NSLayoutConstraint!
     private var usesSecondaryTitleColor = false
 
     override var backgroundStyle: NSView.BackgroundStyle {
@@ -829,6 +912,10 @@ final class SidebarCell: NSTableCellView {
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.symbolConfiguration = .init(pointSize: 14, weight: .regular)
+        tagIndicator.translatesAutoresizingMaskIntoConstraints = false
+        tagIndicator.symbolConfiguration = .init(pointSize: 11, weight: .regular)
+        tagIndicator.isHidden = true
+        tagIndicator.setAccessibilityElement(false)
         attentionIndicator.translatesAutoresizingMaskIntoConstraints = false
         attentionIndicator.symbolConfiguration = .init(pointSize: 12, weight: .semibold)
         attentionIndicator.contentTintColor = .systemOrange
@@ -853,16 +940,26 @@ final class SidebarCell: NSTableCellView {
         labels.setHuggingPriority(.defaultLow, for: .horizontal)
 
         addSubview(iconView)
+        addSubview(tagIndicator)
         addSubview(labels)
         addSubview(attentionIndicator)
         imageView = iconView
         textField = titleField
+        labelsLeadingConstraint = labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6)
+        taggedLabelsLeadingConstraint = labels.leadingAnchor.constraint(
+            equalTo: tagIndicator.trailingAnchor,
+            constant: 6
+        )
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
-            labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
+            tagIndicator.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
+            tagIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            tagIndicator.widthAnchor.constraint(equalToConstant: 12),
+            tagIndicator.heightAnchor.constraint(equalToConstant: 12),
+            labelsLeadingConstraint,
             labels.trailingAnchor.constraint(equalTo: attentionIndicator.leadingAnchor),
             labels.centerYAnchor.constraint(equalTo: centerYAnchor),
             titleField.widthAnchor.constraint(equalTo: labels.widthAnchor),
@@ -881,6 +978,7 @@ final class SidebarCell: NSTableCellView {
         titleField.isSelectable = false
         showValidationError(nil)
         setAttention(.none)
+        setColorTag(nil)
         iconView.toolTip = nil
 
         switch node.kind {
@@ -895,11 +993,13 @@ final class SidebarCell: NSTableCellView {
             standardTitle()
             iconView.contentTintColor = .secondaryLabelColor
             iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "Folder")
+            setColorTag(group.colorTag)
         case .project(let project, _):
             titleField.stringValue = project.name
             standardTitle()
             iconView.contentTintColor = .secondaryLabelColor
             iconView.image = NSImage(systemSymbolName: "shippingbox", accessibilityDescription: "Project")
+            setColorTag(project.colorTag)
         case .terminal(let terminal, _):
             titleField.stringValue = terminal.name
             standardTitle()
@@ -923,6 +1023,30 @@ final class SidebarCell: NSTableCellView {
                 accessibilityDescription: attention.accessibilityLabel
             )
         }
+    }
+
+    private func setColorTag(_ colorTag: ProjectSidebarColorTag?) {
+        tagIndicator.isHidden = colorTag == nil
+        tagIndicator.setAccessibilityElement(colorTag != nil)
+
+        guard let colorTag else {
+            tagIndicator.setAccessibilityLabel(nil)
+            tagIndicator.image = nil
+            tagIndicator.toolTip = nil
+            taggedLabelsLeadingConstraint.isActive = false
+            labelsLeadingConstraint.isActive = true
+            return
+        }
+
+        labelsLeadingConstraint.isActive = false
+        taggedLabelsLeadingConstraint.isActive = true
+        tagIndicator.image = NSImage(
+            systemSymbolName: colorTag.systemImage,
+            accessibilityDescription: colorTag.accessibilityLabel
+        )
+        tagIndicator.contentTintColor = colorTag.color
+        tagIndicator.toolTip = colorTag.accessibilityLabel
+        tagIndicator.setAccessibilityLabel(colorTag.accessibilityLabel)
     }
 
     func showValidationError(_ message: String?) {

@@ -67,6 +67,56 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertFalse(text.contains("sidebarVisible"))
     }
 
+    func testColorTagsRoundTripAndLegacySnapshotsRemainUntagged() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let terminal = ProjectSidebarTerminal(name: "Terminal 1", launchDirectory: "/tmp")
+        let project = ProjectSidebarProject(
+            name: "Relay",
+            baseFolder: "/tmp",
+            terminals: [terminal],
+            colorTag: .blue
+        )
+        let workspace = ProjectSidebarWorkspace(
+            groups: [ProjectSidebarGroup(name: "Control Room", projects: [project], colorTag: .purple)]
+        )
+        let store = ProjectSidebarStore(directoryURL: directory)
+
+        try store.save(workspace)
+
+        let restored = store.load().workspace
+        XCTAssertEqual(restored.groups.first?.colorTag, .purple)
+        XCTAssertEqual(restored.groups.first?.projects.first?.colorTag, .blue)
+        XCTAssertEqual(restored.groups.first?.projects.first?.terminals.first?.name, "Terminal 1")
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let legacy = Data("""
+        {
+          "version": 2,
+          "workspace": {
+            "groups": [{
+              "id": "00000000-0000-0000-0000-000000000001",
+              "name": "Legacy Folder",
+              "projects": [{
+                "id": "00000000-0000-0000-0000-000000000002",
+                "name": "Legacy Project",
+                "baseFolder": "/tmp",
+                "terminals": [],
+                "isExpanded": true
+              }],
+              "isExpanded": true
+            }],
+            "ungroupedProjects": [],
+            "sidebarWidth": 240
+          }
+        }
+        """.utf8)
+        try legacy.write(to: store.primaryURL)
+
+        let legacyWorkspace = store.load().workspace
+        XCTAssertNil(legacyWorkspace.groups.first?.colorTag)
+        XCTAssertNil(legacyWorkspace.groups.first?.projects.first?.colorTag)
+    }
+
     func testStoreRecoversFromBackupAfterPrimaryCorruption() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = ProjectSidebarStore(directoryURL: directory)
@@ -456,11 +506,11 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         )
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .folder),
-            [.addProject, .rename, .separator, .removeFolder]
+            [.addProject, .rename, .tag, .separator, .removeFolder]
         )
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .project),
-            [.newTerminal, .rename, .separator, .removeProject]
+            [.newTerminal, .rename, .tag, .separator, .removeProject]
         )
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .terminal(canRetry: true)),
@@ -469,7 +519,16 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertEqual(ProjectSidebarMenuCommand.removeFolder.title, "Remove Folder")
         XCTAssertEqual(ProjectSidebarMenuCommand.removeProject.title, "Remove Project")
         XCTAssertEqual(ProjectSidebarMenuCommand.removeTerminal.title, "Remove Terminal")
+        XCTAssertEqual(ProjectSidebarMenuCommand.tag.title, "Tags")
         XCTAssertEqual(ProjectSidebarAddMenu.commands, [.addProject, .addFolder])
+    }
+
+    func testColorTagPaletteUsesStableFinderLikeLabels() {
+        XCTAssertEqual(ProjectSidebarColorTag.allCases.map(\.label), [
+            "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Gray",
+        ])
+        XCTAssertEqual(ProjectSidebarColorTag.green.systemImage, "tag.fill")
+        XCTAssertEqual(ProjectSidebarColorTag.green.accessibilityLabel, "Green organizational tag")
     }
 
     func testNativeSplitRestoresPersistedSidebarWidth() {

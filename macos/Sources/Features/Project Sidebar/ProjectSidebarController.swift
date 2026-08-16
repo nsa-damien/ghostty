@@ -256,6 +256,15 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         try commit(updated)
     }
 
+    func setGroupColorTag(_ groupID: UUID, to colorTag: ProjectSidebarColorTag?) throws {
+        guard let groupIndex = workspace.groups.firstIndex(where: { $0.id == groupID }) else {
+            throw ProjectSidebarMutationError.groupNotFound
+        }
+        var updated = workspace
+        updated.groups[groupIndex].colorTag = colorTag
+        try commit(updated)
+    }
+
     func renameTerminal(_ entryID: UUID, to name: String) throws {
         guard let location = location(of: entryID) else {
             throw ProjectSidebarMutationError.terminalNotFound
@@ -264,6 +273,17 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         project.terminals[location.entryIndex].name = name
         var updated = workspace
         updated.replaceProject(at: location.projectLocation, with: project)
+        try commit(updated)
+    }
+
+    func setProjectColorTag(_ projectID: UUID, to colorTag: ProjectSidebarColorTag?) throws {
+        guard let location = workspace.location(ofProject: projectID) else {
+            throw ProjectSidebarMutationError.projectNotFound
+        }
+        var project = workspace.project(at: location)
+        project.colorTag = colorTag
+        var updated = workspace
+        updated.replaceProject(at: location, with: project)
         try commit(updated)
     }
 

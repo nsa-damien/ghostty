@@ -41,4 +41,50 @@ struct SurfaceViewAppKitTests {
             ) == false
         )
     }
+
+    @Test(arguments: [
+        (true, true, false, true),
+        (false, true, false, false),
+        (true, false, false, false),
+        (true, true, true, false),
+    ])
+    func synchronizesOwningControllerOnlyForNewFirstResponder(
+        ownsSurface: Bool,
+        isFirstResponder: Bool,
+        isAlreadyFocused: Bool,
+        expected: Bool
+    ) {
+        #expect(
+            Ghostty.SurfaceView.shouldSynchronizeOwningControllerFocus(
+                ownsSurface: ownsSurface,
+                isFirstResponder: isFirstResponder,
+                isAlreadyFocused: isAlreadyFocused
+            ) == expected
+        )
+    }
+
+    @Test(arguments: [
+        (true, false, true, false, true),
+        (false, false, true, false, false),
+        (true, true, true, false, false),
+        (true, false, false, false, false),
+        (true, false, true, true, false),
+    ])
+    func followsMouseOnlyForEligibleOwningController(
+        ownsSurface: Bool,
+        commandPaletteIsShowing: Bool,
+        isKeyWindow: Bool,
+        isFocused: Bool,
+        expected: Bool
+    ) {
+        #expect(
+            Ghostty.SurfaceView.shouldFocusOnMouseMove(
+                ownsSurface: ownsSurface,
+                commandPaletteIsShowing: commandPaletteIsShowing,
+                isKeyWindow: isKeyWindow,
+                isFocused: isFocused,
+                focusFollowsMouse: true
+            ) == expected
+        )
+    }
 }

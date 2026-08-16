@@ -656,7 +656,7 @@ extension Ghostty {
         }
 
         private func localEventLeftMouseDown(_ event: NSEvent) -> NSEvent? {
-            let isCommandPaletteVisible = (event.window?.windowController as? BaseTerminalController)?
+            let isCommandPaletteVisible = BaseTerminalController.controller(owning: self)?
                 .commandPaletteIsShowing == true
             guard !isCommandPaletteVisible else {
                 // We don't want to process events that
@@ -693,18 +693,40 @@ extension Ghostty {
             // being used to transfer split focus. Consume it so it does not
             // get forwarded to the terminal as a mouse click.
             if NSApp.isActive && window.isKeyWindow {
-                window.makeFirstResponder(self)
+                if window.makeFirstResponder(self) {
+                    synchronizeOwningControllerFocus()
+                }
                 suppressNextLeftMouseUp = true
                 return nil
             }
 
             // Make ourselves the first responder
-            window.makeFirstResponder(self)
+            if window.makeFirstResponder(self) {
+                synchronizeOwningControllerFocus()
+            }
 
             // We have to keep processing the event so that AppKit can properly
             // focus the window and dispatch events. If you return nil here then
             // nobody gets a windowDidBecomeKey event and so on.
             return event
+        }
+
+        static func shouldSynchronizeOwningControllerFocus(
+            ownsSurface: Bool,
+            isFirstResponder: Bool,
+            isAlreadyFocused: Bool
+        ) -> Bool {
+            ownsSurface && isFirstResponder && !isAlreadyFocused
+        }
+
+        func synchronizeOwningControllerFocus() {
+            let controller = BaseTerminalController.controller(owning: self)
+            guard Self.shouldSynchronizeOwningControllerFocus(
+                ownsSurface: controller != nil,
+                isFirstResponder: isFirstResponder,
+                isAlreadyFocused: controller?.focusedSurface === self
+            ), let controller else { return }
+            controller.focusedSurfaceDidChange(to: self)
         }
 
         private func localEventKeyUp(_ event: NSEvent) -> NSEvent? {
@@ -1033,14 +1055,30 @@ extension Ghostty {
             surfaceModel.sendMousePos(mouseEvent)
 
             // Handle focus-follows-mouse
-            if let window,
-               let controller = window.windowController as? BaseTerminalController,
-               !controller.commandPaletteIsShowing,
-               window.isKeyWindow &&
-                    !self.focused &&
-                    controller.focusFollowsMouse {
+            let controller = BaseTerminalController.controller(owning: self)
+            if Self.shouldFocusOnMouseMove(
+                ownsSurface: controller != nil,
+                commandPaletteIsShowing: controller?.commandPaletteIsShowing == true,
+                isKeyWindow: window?.isKeyWindow == true,
+                isFocused: focused,
+                focusFollowsMouse: controller?.focusFollowsMouse == true
+            ) {
                 Ghostty.moveFocus(to: self)
             }
+        }
+
+        static func shouldFocusOnMouseMove(
+            ownsSurface: Bool,
+            commandPaletteIsShowing: Bool,
+            isKeyWindow: Bool,
+            isFocused: Bool,
+            focusFollowsMouse: Bool
+        ) -> Bool {
+            ownsSurface &&
+                !commandPaletteIsShowing &&
+                isKeyWindow &&
+                !isFocused &&
+                focusFollowsMouse
         }
 
         override func mouseDragged(with event: NSEvent) {

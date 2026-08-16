@@ -1112,7 +1112,9 @@ extension Ghostty {
                 _ = from.resignFirstResponder()
             }
 
-            window.makeFirstResponder(to)
+            if window.makeFirstResponder(to) {
+                to.synchronizeOwningControllerFocus()
+            }
         }
 
         let queue = DispatchQueue.main

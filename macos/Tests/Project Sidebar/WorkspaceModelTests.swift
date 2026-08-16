@@ -418,7 +418,7 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertEqual(ProjectSidebarWidthPersistence.updatedWidth(current: 240, measured: 700), 560)
     }
 
-    func testSidebarContextMenusUseRemoveLanguageAndOfferBackgroundCreation() {
+    func testSidebarContextMenusKeepProjectOrganizationInDragAndDrop() {
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .background),
             [.addFolder, .addProject]
@@ -428,8 +428,8 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
             [.addProject, .rename, .separator, .removeFolder]
         )
         XCTAssertEqual(
-            ProjectSidebarContextMenu.commands(for: .project(isGrouped: false)),
-            [.newTerminal, .rename, .replaceBaseFolder, .separator, .removeProject]
+            ProjectSidebarContextMenu.commands(for: .project),
+            [.newTerminal, .rename, .separator, .removeProject]
         )
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .terminal(canRetry: true)),
@@ -438,7 +438,7 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         XCTAssertEqual(ProjectSidebarMenuCommand.removeFolder.title, "Remove Folder")
         XCTAssertEqual(ProjectSidebarMenuCommand.removeProject.title, "Remove Project")
         XCTAssertEqual(ProjectSidebarMenuCommand.removeTerminal.title, "Remove Terminal")
-        XCTAssertEqual(ProjectSidebarToolbarMenu.commands, [.addProject, .addFolder])
+        XCTAssertEqual(ProjectSidebarAddMenu.commands, [.addProject, .addFolder])
     }
 
     func testNativeSplitRestoresPersistedSidebarWidth() {

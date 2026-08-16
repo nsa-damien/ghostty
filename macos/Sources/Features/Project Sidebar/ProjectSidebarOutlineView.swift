@@ -24,8 +24,6 @@ enum ProjectSidebarMenuCommand: Hashable {
     case addProject
     case newTerminal
     case rename
-    case replaceBaseFolder
-    case moveOutOfFolder
     case retry
     case changeFolder
     case removeFolder
@@ -39,8 +37,6 @@ enum ProjectSidebarMenuCommand: Hashable {
         case .addProject: "Add Project"
         case .newTerminal: "New Terminal"
         case .rename: "Rename"
-        case .replaceBaseFolder: "Replace Base Folder"
-        case .moveOutOfFolder: "Move Out of Folder"
         case .retry: "Retry"
         case .changeFolder: "Change Folder"
         case .removeFolder: "Remove Folder"
@@ -54,7 +50,7 @@ enum ProjectSidebarMenuCommand: Hashable {
 enum ProjectSidebarContextMenuTarget: Equatable {
     case background
     case folder
-    case project(isGrouped: Bool)
+    case project
     case terminal(canRetry: Bool)
 }
 
@@ -65,10 +61,8 @@ enum ProjectSidebarContextMenu {
             [.addFolder, .addProject]
         case .folder:
             [.addProject, .rename, .separator, .removeFolder]
-        case .project(let isGrouped):
-            [.newTerminal, .rename, .replaceBaseFolder]
-                + (isGrouped ? [.moveOutOfFolder] : [])
-                + [.separator, .removeProject]
+        case .project:
+            [.newTerminal, .rename, .separator, .removeProject]
         case .terminal(let canRetry):
             [.rename]
                 + (canRetry ? [.retry] : [])
@@ -687,7 +681,7 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             let target: ProjectSidebarContextMenuTarget
             switch node?.kind {
             case .group: target = .folder
-            case .project(_, let groupID): target = .project(isGrouped: groupID != nil)
+            case .project: target = .project
             case .terminal(let terminal, _): target = .terminal(canRetry: controller.launchFailures.contains(terminal.id))
             case .section, nil: target = .background
             }
@@ -709,8 +703,6 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             case .addProject: #selector(addProject)
             case .newTerminal: #selector(addTerminal)
             case .rename: #selector(renameMenuItem)
-            case .replaceBaseFolder: #selector(replaceProjectFolder)
-            case .moveOutOfFolder: #selector(moveProjectOut)
             case .retry: #selector(retryTerminal)
             case .changeFolder: #selector(replaceTerminalFolder)
             case .removeFolder, .removeProject, .removeTerminal: #selector(removeMenuItem)
@@ -767,17 +759,6 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
                 return
             }
             if controller.workspace != previousWorkspace { rebuild() }
-        }
-
-        @objc private func replaceProjectFolder() {
-            guard case .project(let project, _)? = menuNode?.kind else { return }
-            controller.chooseReplacementFolder(forProject: project.id)
-        }
-
-        @objc private func moveProjectOut() {
-            guard case .project(let project, _)? = menuNode?.kind else { return }
-            controller.performSidebarMutation { try controller.moveProject(project.id, toGroup: nil) }
-            rebuild()
         }
 
         @objc private func retryTerminal() {

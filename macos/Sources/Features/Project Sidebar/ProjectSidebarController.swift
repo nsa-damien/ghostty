@@ -298,26 +298,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         }
     }
 
-    func replaceProjectBaseFolder(_ projectID: UUID, with folder: String) throws {
-        guard ProjectSidebarWorkspaceValidator.isDirectoryAvailable(folder) else {
-            throw ProjectSidebarMutationError.baseFolderUnavailable
-        }
-        guard let location = workspace.location(ofProject: projectID) else {
-            throw ProjectSidebarMutationError.projectNotFound
-        }
-        let folderKey = ProjectSidebarWorkspaceValidator.canonicalFolderKey(folder)
-        guard !workspace.projects.contains(where: {
-            $0.id != projectID && ProjectSidebarWorkspaceValidator.canonicalFolderKey($0.baseFolder) == folderKey
-        }) else {
-            throw ProjectSidebarMutationError.duplicateBaseFolder
-        }
-        var project = workspace.project(at: location)
-        project.baseFolder = folder
-        var updated = workspace
-        updated.replaceProject(at: location, with: project)
-        try commit(updated)
-    }
-
     func replaceTerminalDirectory(_ entryID: UUID, with folder: String) throws {
         guard ProjectSidebarWorkspaceValidator.isDirectoryAvailable(folder) else {
             throw ProjectSidebarMutationError.terminalDirectoryUnavailable
@@ -402,12 +382,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
             selectedEntryID = nil
         }
         return true
-    }
-
-    func chooseReplacementFolder(forProject projectID: UUID) {
-        chooseFolder { [weak self] folder in
-            try? self?.replaceProjectBaseFolder(projectID, with: folder)
-        }
     }
 
     func chooseReplacementFolder(forEntry entryID: UUID) {

@@ -19,32 +19,10 @@ struct ProjectSidebarView: View {
     var body: some View {
         ProjectSidebarSplitView(controller: controller)
         .frame(minWidth: 760, minHeight: 480)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    ForEach(ProjectSidebarToolbarMenu.commands, id: \.self) { command in
-                        switch command {
-                        case .addProject:
-                            Button(command.title ?? "Add Project") {
-                                controller.createProjectFromFolderPicker()
-                            }
-                        case .addFolder:
-                            Button(command.title ?? "Add Folder") {
-                                controller.performSidebarMutation { _ = try controller.createGroup() }
-                            }
-                        default:
-                            EmptyView()
-                        }
-                    }
-                } label: {
-                    Label("Add", systemImage: "plus")
-                }
-            }
-        }
     }
 }
 
-enum ProjectSidebarToolbarMenu {
+enum ProjectSidebarAddMenu {
     static let commands: [ProjectSidebarMenuCommand] = [.addProject, .addFolder]
 }
 
@@ -204,21 +182,54 @@ struct ProjectSidebarSidebarContent: View {
     @ObservedObject var controller: ProjectSidebarController
 
     var body: some View {
-        ZStack {
-            ProjectSidebarOutlineView(controller: controller)
+        VStack(spacing: 0) {
+            ZStack {
+                ProjectSidebarOutlineView(controller: controller)
 
-            if controller.workspace.projects.isEmpty && controller.workspace.groups.isEmpty {
-                emptyState
+                if controller.workspace.projects.isEmpty && controller.workspace.groups.isEmpty {
+                    emptyState
+                }
             }
-        }
-        .overlay(alignment: .bottom) {
-            if let notice = controller.recoveryNotice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(8)
-                    .background(.thinMaterial)
+            .overlay(alignment: .bottom) {
+                if let notice = controller.recoveryNotice {
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                        .background(.thinMaterial)
+                }
             }
+
+            Divider()
+            HStack {
+                Menu {
+                    ForEach(ProjectSidebarAddMenu.commands, id: \.self) { command in
+                        switch command {
+                        case .addProject:
+                            Button(command.title ?? "Add Project") {
+                                controller.createProjectFromFolderPicker()
+                            }
+                        case .addFolder:
+                            Button(command.title ?? "Add Folder") {
+                                controller.performSidebarMutation { _ = try controller.createGroup() }
+                            }
+                        default:
+                            EmptyView()
+                        }
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 28, height: 28)
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Add to Sidebar")
+                .help("Add a project or folder")
+
+                Spacer()
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 32)
+            .background(.bar)
         }
     }
 

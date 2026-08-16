@@ -25,8 +25,7 @@ enum ProjectSidebarEntryStatus: Equatable {
 
     var systemImage: String {
         switch self {
-        case .running: "circle.fill"
-        case .stopped: "circle"
+        case .running, .stopped: "terminal"
         case .unavailable: "exclamationmark.triangle.fill"
         }
     }
@@ -46,6 +45,12 @@ enum ProjectSidebarEntryAttention: Equatable {
         case .needsAttention:
             "Needs attention: a background terminal completed a command or rang its bell."
         }
+    }
+}
+
+enum ProjectSidebarTerminalFocusPolicy {
+    static func target<Surface>(focused: Surface?, surfaces: [Surface]) -> Surface? {
+        focused ?? surfaces.first
     }
 }
 

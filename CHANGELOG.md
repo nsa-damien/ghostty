@@ -41,5 +41,8 @@ All notable changes to this project will be documented in this file.
   actions, and kept organization changes in the native sidebar controls.
 - Added a separate amber attention badge for background terminals that complete work or ring their
   bell, while clarifying that the green terminal indicator means a live process.
-- Added persistent Finder-like color tags for sidebar folders and projects, with accessible named
-  color choices that remain distinct from terminal runtime and attention indicators.
+- Added persistent Finder-like color tags for sidebar folders, projects, and terminals, with
+  accessible named color choices that remain distinct from terminal runtime and attention indicators.
+- Made a click on a sidebar terminal move typing focus directly to its active terminal pane.
+- Refined the sidebar hierarchy with stronger selection treatment, neutral terminal icons, and
+  persistent color tags for folders, projects, and terminals.

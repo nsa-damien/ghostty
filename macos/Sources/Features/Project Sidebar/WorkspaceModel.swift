@@ -172,11 +172,18 @@ struct ProjectSidebarTerminal: Codable, Equatable, Identifiable {
     let id: UUID
     var name: String
     var launchDirectory: String
+    var colorTag: ProjectSidebarColorTag?
 
-    init(id: UUID = UUID(), name: String, launchDirectory: String) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        launchDirectory: String,
+        colorTag: ProjectSidebarColorTag? = nil
+    ) {
         self.id = id
         self.name = name
         self.launchDirectory = launchDirectory
+        self.colorTag = colorTag
     }
 }
 

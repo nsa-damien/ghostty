@@ -66,10 +66,16 @@ enum ProjectSidebarContextMenu {
         case .project:
             [.newTerminal, .rename, .tag, .separator, .removeProject]
         case .terminal(let canRetry):
-            [.rename]
+            [.rename, .tag]
                 + (canRetry ? [.retry] : [])
                 + [.changeFolder, .separator, .removeTerminal]
         }
+    }
+}
+
+enum ProjectSidebarTerminalActivationPolicy {
+    static func shouldFocus(clickedRow: Int, selectedRow: Int, dragged: Bool) -> Bool {
+        clickedRow >= 0 && clickedRow == selectedRow && !dragged
     }
 }
 
@@ -136,6 +142,7 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             outlineView.dataSource = self
             outlineView.delegate = self
             outlineView.style = .sourceList
+            outlineView.selectionHighlightStyle = .regular
             outlineView.rowSizeStyle = .default
             outlineView.indentationPerLevel = 16
             outlineView.autoresizesOutlineColumn = true
@@ -155,6 +162,10 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             outlineView.menuProvider = { [weak self] node in self?.menu(for: node) }
             outlineView.renameAction = { [weak self] in self?.beginRenameForSelectedRow() }
             outlineView.deleteAction = { [weak self] in self?.deleteSelectedRow() }
+            outlineView.terminalActivationAction = { [weak self] node in
+                guard case .terminal(let terminal, _) = node.kind else { return }
+                self?.controller.focusTerminal(entryID: terminal.id)
+            }
 
             let scrollView = ProjectSidebarScrollView()
             scrollView.documentView = outlineView
@@ -726,7 +737,8 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
             switch node.kind {
             case .group(let group): selectedTag = group.colorTag
             case .project(let project, _): selectedTag = project.colorTag
-            case .section, .terminal: return nil
+            case .terminal(let terminal, _): selectedTag = terminal.colorTag
+            case .section: return nil
             }
 
             let menu = NSMenu(title: "Tags")
@@ -784,7 +796,11 @@ struct ProjectSidebarOutlineView: NSViewRepresentable {
                 controller.performSidebarMutation {
                     try controller.setProjectColorTag(project.id, to: colorTag)
                 }
-            case .section, .terminal:
+            case .terminal(let terminal, _):
+                controller.performSidebarMutation {
+                    try controller.setTerminalColorTag(terminal.id, to: colorTag)
+                }
+            case .section:
                 return
             }
         }
@@ -828,11 +844,32 @@ private final class NativeOutlineView: NSOutlineView {
     var menuProvider: ((Node?) -> NSMenu?)?
     var renameAction: (() -> Void)?
     var deleteAction: (() -> Void)?
+    var terminalActivationAction: ((Node) -> Void)?
+    private var mouseDraggedAfterPress = false
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = self.row(at: convert(event.locationInWindow, from: nil))
         let node = row >= 0 ? item(atRow: row) as? Node : nil
         return menuProvider?(node)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let clickedRow = row(at: convert(event.locationInWindow, from: nil))
+        let node = clickedRow >= 0 ? item(atRow: clickedRow) as? Node : nil
+        mouseDraggedAfterPress = false
+        super.mouseDown(with: event)
+        guard let node,
+              ProjectSidebarTerminalActivationPolicy.shouldFocus(
+                  clickedRow: clickedRow,
+                  selectedRow: selectedRow,
+                  dragged: mouseDraggedAfterPress
+              ) else { return }
+        terminalActivationAction?(node)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        mouseDraggedAfterPress = true
+        super.mouseDragged(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -898,7 +935,6 @@ final class SidebarCell: NSTableCellView {
     private let attentionIndicator = NSImageView()
     private var attentionWidthConstraint: NSLayoutConstraint!
     private var labelsLeadingConstraint: NSLayoutConstraint!
-    private var taggedLabelsLeadingConstraint: NSLayoutConstraint!
     private var usesSecondaryTitleColor = false
 
     override var backgroundStyle: NSView.BackgroundStyle {
@@ -913,7 +949,7 @@ final class SidebarCell: NSTableCellView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.symbolConfiguration = .init(pointSize: 14, weight: .regular)
         tagIndicator.translatesAutoresizingMaskIntoConstraints = false
-        tagIndicator.symbolConfiguration = .init(pointSize: 11, weight: .regular)
+        tagIndicator.symbolConfiguration = .init(pointSize: 8, weight: .semibold)
         tagIndicator.isHidden = true
         tagIndicator.setAccessibilityElement(false)
         attentionIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -946,19 +982,15 @@ final class SidebarCell: NSTableCellView {
         imageView = iconView
         textField = titleField
         labelsLeadingConstraint = labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6)
-        taggedLabelsLeadingConstraint = labels.leadingAnchor.constraint(
-            equalTo: tagIndicator.trailingAnchor,
-            constant: 6
-        )
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
-            tagIndicator.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
-            tagIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
-            tagIndicator.widthAnchor.constraint(equalToConstant: 12),
-            tagIndicator.heightAnchor.constraint(equalToConstant: 12),
+            tagIndicator.centerXAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 1),
+            tagIndicator.centerYAnchor.constraint(equalTo: iconView.bottomAnchor, constant: -1),
+            tagIndicator.widthAnchor.constraint(equalToConstant: 8),
+            tagIndicator.heightAnchor.constraint(equalToConstant: 8),
             labelsLeadingConstraint,
             labels.trailingAnchor.constraint(equalTo: attentionIndicator.leadingAnchor),
             labels.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -1004,9 +1036,10 @@ final class SidebarCell: NSTableCellView {
             titleField.stringValue = terminal.name
             standardTitle()
             let status = controller.entryStatus(terminal.id)
-            iconView.contentTintColor = status == .running ? .systemGreen : .secondaryLabelColor
+            iconView.contentTintColor = status == .unavailable ? .systemOrange : .secondaryLabelColor
             iconView.image = NSImage(systemSymbolName: status.systemImage, accessibilityDescription: status.label)
             iconView.toolTip = status.helpText
+            setColorTag(terminal.colorTag)
             setAttention(controller.runtime(for: terminal.id)?.attention ?? .none)
         }
     }
@@ -1033,13 +1066,9 @@ final class SidebarCell: NSTableCellView {
             tagIndicator.setAccessibilityLabel(nil)
             tagIndicator.image = nil
             tagIndicator.toolTip = nil
-            taggedLabelsLeadingConstraint.isActive = false
-            labelsLeadingConstraint.isActive = true
             return
         }
 
-        labelsLeadingConstraint.isActive = false
-        taggedLabelsLeadingConstraint.isActive = true
         tagIndicator.image = NSImage(
             systemSymbolName: colorTag.systemImage,
             accessibilityDescription: colorTag.accessibilityLabel

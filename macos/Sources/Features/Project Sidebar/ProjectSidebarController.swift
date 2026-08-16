@@ -196,6 +196,15 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         updateRuntimeFocus()
     }
 
+    func focusTerminal(entryID: UUID) {
+        guard let runtime = runtimeRegistry.runtime(for: entryID),
+              let target = ProjectSidebarTerminalFocusPolicy.target(
+                  focused: runtime.controller.focusedSurface,
+                  surfaces: Array(runtime.controller.surfaceTree)
+              ) else { return }
+        Ghostty.moveFocus(to: target)
+    }
+
     @discardableResult
     func launch(entryID: UUID) -> Bool {
         guard let entry = entry(entryID: entryID) else { return false }
@@ -284,6 +293,17 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         project.colorTag = colorTag
         var updated = workspace
         updated.replaceProject(at: location, with: project)
+        try commit(updated)
+    }
+
+    func setTerminalColorTag(_ entryID: UUID, to colorTag: ProjectSidebarColorTag?) throws {
+        guard let location = location(of: entryID) else {
+            throw ProjectSidebarMutationError.terminalNotFound
+        }
+        var project = workspace.project(at: location.projectLocation)
+        project.terminals[location.entryIndex].colorTag = colorTag
+        var updated = workspace
+        updated.replaceProject(at: location.projectLocation, with: project)
         try commit(updated)
     }
 

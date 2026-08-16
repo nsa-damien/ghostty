@@ -69,7 +69,11 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
 
     func testColorTagsRoundTripAndLegacySnapshotsRemainUntagged() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let terminal = ProjectSidebarTerminal(name: "Terminal 1", launchDirectory: "/tmp")
+        let terminal = ProjectSidebarTerminal(
+            name: "Terminal 1",
+            launchDirectory: "/tmp",
+            colorTag: .orange
+        )
         let project = ProjectSidebarProject(
             name: "Relay",
             baseFolder: "/tmp",
@@ -86,7 +90,7 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         let restored = store.load().workspace
         XCTAssertEqual(restored.groups.first?.colorTag, .purple)
         XCTAssertEqual(restored.groups.first?.projects.first?.colorTag, .blue)
-        XCTAssertEqual(restored.groups.first?.projects.first?.terminals.first?.name, "Terminal 1")
+        XCTAssertEqual(restored.groups.first?.projects.first?.terminals.first?.colorTag, .orange)
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let legacy = Data("""
@@ -115,6 +119,7 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         let legacyWorkspace = store.load().workspace
         XCTAssertNil(legacyWorkspace.groups.first?.colorTag)
         XCTAssertNil(legacyWorkspace.groups.first?.projects.first?.colorTag)
+        XCTAssertNil(legacyWorkspace.groups.first?.projects.first?.terminals.first?.colorTag)
     }
 
     func testStoreRecoversFromBackupAfterPrimaryCorruption() throws {
@@ -497,6 +502,48 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
             ProjectSidebarEntryStatus.unavailable.helpText,
             "This terminal's launch folder is unavailable."
         )
+        XCTAssertEqual(ProjectSidebarEntryStatus.running.systemImage, "terminal")
+        XCTAssertEqual(ProjectSidebarEntryStatus.stopped.systemImage, "terminal")
+        XCTAssertEqual(ProjectSidebarEntryStatus.unavailable.systemImage, "exclamationmark.triangle.fill")
+    }
+
+    func testSidebarTerminalFocusUsesLastFocusedPaneOrFirstPane() {
+        let first = UUID()
+        let second = UUID()
+
+        XCTAssertEqual(
+            ProjectSidebarTerminalFocusPolicy.target(focused: second, surfaces: [first, second]),
+            second
+        )
+        XCTAssertEqual(
+            ProjectSidebarTerminalFocusPolicy.target(focused: nil, surfaces: [first, second]),
+            first
+        )
+        XCTAssertNil(ProjectSidebarTerminalFocusPolicy.target(focused: nil, surfaces: [] as [UUID]))
+    }
+
+    func testTerminalActivationFocusesOnlyAnUninterruptedClickOnTheSelectedRow() {
+        XCTAssertTrue(
+            ProjectSidebarTerminalActivationPolicy.shouldFocus(
+                clickedRow: 3,
+                selectedRow: 3,
+                dragged: false
+            )
+        )
+        XCTAssertFalse(
+            ProjectSidebarTerminalActivationPolicy.shouldFocus(
+                clickedRow: 3,
+                selectedRow: 3,
+                dragged: true
+            )
+        )
+        XCTAssertFalse(
+            ProjectSidebarTerminalActivationPolicy.shouldFocus(
+                clickedRow: 3,
+                selectedRow: 4,
+                dragged: false
+            )
+        )
     }
 
     func testSidebarContextMenusKeepProjectOrganizationInDragAndDrop() {
@@ -514,7 +561,7 @@ final class ProjectSidebarWorkspaceModelTests: XCTestCase {
         )
         XCTAssertEqual(
             ProjectSidebarContextMenu.commands(for: .terminal(canRetry: true)),
-            [.rename, .retry, .changeFolder, .separator, .removeTerminal]
+            [.rename, .tag, .retry, .changeFolder, .separator, .removeTerminal]
         )
         XCTAssertEqual(ProjectSidebarMenuCommand.removeFolder.title, "Remove Folder")
         XCTAssertEqual(ProjectSidebarMenuCommand.removeProject.title, "Remove Project")

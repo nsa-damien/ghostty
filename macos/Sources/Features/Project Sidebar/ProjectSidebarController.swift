@@ -26,32 +26,6 @@ enum ProjectSidebarMutationError: Error, Equatable, LocalizedError {
     }
 }
 
-enum ProjectSidebarTerminalCycling {
-    enum Direction {
-        case previous
-        case next
-    }
-
-    static func entryID(
-        in entryIDs: [UUID],
-        adjacentTo selectedEntryID: UUID?,
-        direction: Direction
-    ) -> UUID? {
-        guard !entryIDs.isEmpty else { return nil }
-        guard let selectedEntryID,
-              let index = entryIDs.firstIndex(of: selectedEntryID) else {
-            return direction == .next ? entryIDs.first : entryIDs.last
-        }
-
-        switch direction {
-        case .previous:
-            return entryIDs[(index - 1 + entryIDs.count) % entryIDs.count]
-        case .next:
-            return entryIDs[(index + 1) % entryIDs.count]
-        }
-    }
-}
-
 final class PaneCloseConfirmationPresenter {
     private(set) var alert: NSAlert?
 
@@ -220,18 +194,6 @@ final class ProjectSidebarController: NSObject, ObservableObject {
         selectedEntryID = entryID
         _ = launch(entryID: entryID)
         updateRuntimeFocus()
-    }
-
-    @discardableResult
-    func selectAdjacentTerminal(_ direction: ProjectSidebarTerminalCycling.Direction) -> Bool {
-        let entryIDs = workspace.projects.flatMap { $0.terminals.map(\.id) }
-        guard let entryID = ProjectSidebarTerminalCycling.entryID(
-            in: entryIDs,
-            adjacentTo: selectedEntryID,
-            direction: direction
-        ) else { return false }
-        select(entryID: entryID)
-        return true
     }
 
     @discardableResult

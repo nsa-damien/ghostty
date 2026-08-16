@@ -592,12 +592,6 @@ class AppDelegate: NSObject,
             case 0x0D: // W
                 projectSidebarController.performCloseSelectedTerminal()
                 return nil
-            case 0x21: // [
-                _ = projectSidebarController.selectAdjacentTerminal(.previous)
-                return nil
-            case 0x1E: // ]
-                _ = projectSidebarController.selectAdjacentTerminal(.next)
-                return nil
             default:
                 break
             }
